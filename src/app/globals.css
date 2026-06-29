@@ -96,6 +96,10 @@ button {
   touch-action: manipulation;
 }
 
+.cell:focus {
+  outline: 0;
+}
+
 .cell::after {
   background: rgba(0, 0, 0, 0.05);
   content: "";
@@ -160,6 +164,14 @@ button {
   padding: 7px 11px;
 }
 
+.iconButton:focus,
+.editorControls button:focus,
+.editorControls input:focus,
+.viewControls button:focus,
+.swatch:focus {
+  outline: 0;
+}
+
 .iconButton,
 .editorControls button,
 .viewControls button {
@@ -172,6 +184,18 @@ button {
 .viewControls button:hover:not(:disabled) {
   background: #000;
   color: #fff;
+}
+
+.iconButton:focus-visible,
+.editorControls button:focus-visible:not(:disabled),
+.viewControls button:focus-visible:not(:disabled) {
+  background: #000;
+  box-shadow: inset 0 0 0 2px #fff;
+  color: #fff;
+}
+
+.editorControls input:focus-visible {
+  box-shadow: inset 0 -3px 0 #000;
 }
 
 .iconButton.active {
@@ -389,8 +413,11 @@ button {
 }
 
 .swatch.active {
-  outline: 3px solid #000;
-  outline-offset: 2px;
+  box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 5px #000;
+}
+
+.swatch:focus-visible {
+  box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 5px #000;
 }
 
 .srOnly {
