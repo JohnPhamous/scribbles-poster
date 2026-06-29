@@ -271,6 +271,67 @@ button {
   will-change: transform, opacity;
 }
 
+.drawGuideFrame {
+  aspect-ratio: 1;
+  left: var(--zoom-to-x);
+  opacity: 0;
+  pointer-events: none;
+  position: fixed;
+  top: var(--zoom-to-y);
+  transform-origin: 0 0;
+  width: var(--zoom-to-size);
+  will-change: transform, opacity;
+  z-index: 2;
+}
+
+.drawGuideFrame.opening {
+  animation: guideIn 160ms ease 620ms forwards;
+}
+
+.drawGuideFrame.closing {
+  animation: guideOut 120ms ease both;
+}
+
+.drawGuideLine {
+  border-color: rgba(0, 0, 0, 0.22);
+  border-style: dashed;
+  border-width: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.drawGuideLineTop,
+.drawGuideLineBottom {
+  left: calc(var(--zoom-to-x) * -1);
+  width: 100vw;
+}
+
+.drawGuideLineLeft,
+.drawGuideLineRight {
+  height: 100vh;
+  top: calc(var(--zoom-to-y) * -1);
+}
+
+.drawGuideLineTop {
+  border-top-width: 1px;
+  top: 0;
+}
+
+.drawGuideLineRight {
+  border-right-width: 1px;
+  right: 0;
+}
+
+.drawGuideLineBottom {
+  border-bottom-width: 1px;
+  bottom: 0;
+}
+
+.drawGuideLineLeft {
+  border-left-width: 1px;
+  left: 0;
+}
+
 .editorCanvasWrap {
   aspect-ratio: 1;
   position: relative;
@@ -379,6 +440,18 @@ button {
   to {
     opacity: 0;
     transform: translateY(10px);
+  }
+}
+
+@keyframes guideIn {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes guideOut {
+  to {
+    opacity: 0;
   }
 }
 

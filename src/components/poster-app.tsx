@@ -749,6 +749,14 @@ function CellOverlay({
 }) {
   return (
     <div className="overlay noPrint">
+      {selection.kind === "edit" ? (
+        <motion.div aria-hidden="true" className={`drawGuideFrame ${phase === "exit" ? "closing" : "opening"}`} style={style}>
+          <span className="drawGuideLine drawGuideLineTop" />
+          <span className="drawGuideLine drawGuideLineRight" />
+          <span className="drawGuideLine drawGuideLineBottom" />
+          <span className="drawGuideLine drawGuideLineLeft" />
+        </motion.div>
+      ) : null}
       <motion.div
         className={`zoomPanel ${phase === "exit" ? "closing" : "opening"}`}
         onPointerCancel={onPointerCancel}
