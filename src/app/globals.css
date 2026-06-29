@@ -1,0 +1,374 @@
+:root {
+  background: #f1f1ef;
+  color: #000;
+  color-scheme: light;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.appLoading {
+  display: grid;
+  place-items: center;
+}
+
+.stage {
+  transition: opacity 260ms ease, transform 360ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  display: grid;
+  min-height: calc(100vh - 92px);
+  justify-items: center;
+  align-items: start;
+}
+
+.poster {
+  width: min(92vw, calc((100vh - 112px) * var(--poster-width) / var(--poster-height)));
+  aspect-ratio: calc(var(--poster-width) / var(--poster-height));
+  background: #fff;
+  border: 1px solid #000;
+  display: grid;
+  grid-template-rows: calc(var(--title-height) / var(--poster-height) * 100%) 1fr;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.16);
+}
+
+.posterTitle {
+  align-items: center;
+  border-bottom: 1px solid #000;
+  display: flex;
+  font-size: clamp(22px, 4vw, 58px);
+  font-weight: 800;
+  justify-content: center;
+  letter-spacing: 0;
+  line-height: 1;
+  overflow: hidden;
+  padding: 0 5%;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.posterGrid {
+  background: #000;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(var(--columns), 1fr);
+  grid-template-rows: repeat(var(--rows), 1fr);
+}
+
+.cell {
+  appearance: none;
+  background: #fff;
+  border: 0;
+  cursor: crosshair;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  touch-action: manipulation;
+  transition: box-shadow 160ms ease, background 160ms ease;
+}
+
+.cell:hover {
+  box-shadow: inset 0 0 0 3px #000;
+  z-index: 2;
+}
+
+.cell.held {
+  cursor: not-allowed;
+}
+
+.drawingCanvas {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.cellName,
+.detailName {
+  bottom: 4px;
+  color: #9a9a9a;
+  display: block;
+  font-size: clamp(8px, 1.05vw, 14px);
+  left: 6px;
+  line-height: 1.1;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellHeld {
+  background: rgba(0, 0, 0, 0.76);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  left: 50%;
+  line-height: 1;
+  padding: 6px 8px;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  min-height: 44px;
+  padding-top: 14px;
+  transition: opacity 180ms ease;
+}
+
+.iconButton,
+.editorControls button,
+.editorControls input {
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 4px;
+  min-height: 36px;
+  padding: 7px 11px;
+}
+
+.iconButton,
+.editorControls button {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.iconButton:hover,
+.editorControls button:hover:not(:disabled) {
+  background: #000;
+  color: #fff;
+}
+
+.editorControls button:disabled {
+  color: #8d8d8d;
+  cursor: not-allowed;
+}
+
+.editorControls button[data-primary] {
+  background: #000;
+  color: #fff;
+}
+
+.status {
+  color: #444;
+  margin: 0;
+}
+
+.zoomActive .stage {
+  inset: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  z-index: 18;
+}
+
+.zoomActive .toolbar {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.zoomActive .poster {
+  animation: posterCameraZoom 620ms cubic-bezier(0.16, 1, 0.2, 1) both;
+  box-shadow: none;
+  height: var(--camera-poster-height);
+  left: var(--camera-poster-x);
+  position: fixed;
+  top: var(--camera-poster-y);
+  transform-origin: 0 0;
+  width: var(--camera-poster-width);
+  will-change: transform;
+}
+
+.overlay {
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 24;
+}
+
+.zoomPanel {
+  animation: editorSurfaceIn 140ms ease 520ms both;
+  display: grid;
+  gap: 14px;
+  left: var(--zoom-to-x);
+  pointer-events: auto;
+  position: fixed;
+  top: var(--zoom-to-y);
+  width: var(--zoom-to-size);
+}
+
+.editorCanvasWrap {
+  aspect-ratio: 1;
+  background: #fff;
+  border: 1px solid #000;
+  box-shadow: 0 18px 58px rgba(0, 0, 0, 0.18);
+  position: relative;
+}
+
+.editorCanvas,
+.editorCanvasWrap .drawingCanvas {
+  display: block;
+  height: 100%;
+  touch-action: none;
+  width: 100%;
+}
+
+.readOnly {
+  pointer-events: none;
+}
+
+.editorControls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.editorControls input {
+  min-width: min(260px, 100%);
+}
+
+.palette {
+  display: flex;
+  gap: 6px;
+}
+
+.swatch {
+  border: 2px solid #000;
+  border-radius: 999px;
+  cursor: pointer;
+  height: 34px;
+  padding: 0;
+  width: 34px;
+}
+
+.swatch.active {
+  outline: 3px solid #000;
+  outline-offset: 2px;
+}
+
+.timer {
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.srOnly {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@keyframes posterCameraZoom {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    transform: translate3d(var(--camera-dx), var(--camera-dy), 0) scale(var(--camera-scale));
+  }
+}
+
+@keyframes editorSurfaceIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .app {
+    padding: 12px;
+  }
+
+  .stage {
+    min-height: calc(100vh - 96px);
+  }
+
+  .poster {
+    width: min(96vw, calc((100vh - 116px) * var(--poster-width) / var(--poster-height)));
+  }
+
+  .posterTitle {
+    font-size: clamp(18px, 10vw, 38px);
+  }
+
+  .toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+@media print {
+  :root {
+    background: #fff;
+  }
+
+  @page {
+    margin: 0;
+    size: 24in 36in;
+  }
+
+  .noPrint {
+    display: none !important;
+  }
+
+  .app,
+  .stage {
+    display: block;
+    min-height: auto;
+    padding: 0;
+  }
+
+  .poster {
+    border: 0;
+    box-shadow: none;
+    height: 36in;
+    width: 24in;
+  }
+
+  .posterTitle {
+    font-size: 0.9in;
+  }
+
+  .cellName {
+    bottom: 0.08in;
+    font-size: 0.14in;
+    left: 0.1in;
+  }
+}

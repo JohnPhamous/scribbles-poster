@@ -1,0 +1,10 @@
+.DS_Store
+.git.nosync
+.metadata_never_index
+.env
+.env*.local
+.next
+node_modules
+out
+*.tsbuildinfo
+vercel.json
