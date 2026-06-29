@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidCellId } from "@/lib/poster-config";
-import { deleteHold, getCell, getHold, saveCell } from "@/lib/storage";
+import { deleteHold, getCell, getSessionHold, saveCell } from "@/lib/storage";
 import { validateDrawing } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -39,9 +39,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
   }
 
-  const hold = await getHold(id);
+  const hold = await getSessionHold(id, body.sessionId);
   const holdActive = hold && new Date(hold.expiresAt).getTime() > Date.now();
-  if (!holdActive || hold.sessionId !== body.sessionId) {
+  if (!holdActive) {
     return NextResponse.json({ error: "Cell hold is missing or expired", hold }, { status: 423 });
   }
 
@@ -55,6 +55,6 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
   }
 
-  await deleteHold(id);
+  await deleteHold(id, body.sessionId);
   return NextResponse.json(savedDrawing);
 }

@@ -37,7 +37,7 @@ export async function listCells(): Promise<CellDrawing[]> {
 
 export async function getCell(id: string): Promise<CellDrawing | null> {
   if (!hasBlobToken) return memoryCells.get(id) ?? null;
-  return readBlobByPath<CellDrawing>(`${cellPrefix}${id}.json`);
+  return readListedBlobByPath<CellDrawing>(`${cellPrefix}${id}.json`);
 }
 
 export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occupied"> {
@@ -113,7 +113,7 @@ async function withDrawOrderLock<T>(callback: () => Promise<T>) {
 }
 
 async function deleteExpiredDrawOrderLock() {
-  const lock = await readBlobByPath<BlobLock>(drawOrderLockPath);
+  const lock = await readListedBlobByPath<BlobLock>(drawOrderLockPath);
   if (!lock || new Date(lock.expiresAt).getTime() > Date.now()) return;
   try {
     await del(drawOrderLockPath);
@@ -123,7 +123,7 @@ async function deleteExpiredDrawOrderLock() {
 }
 
 async function releaseDrawOrderLock(token: string) {
-  const lock = await readBlobByPath<BlobLock>(drawOrderLockPath);
+  const lock = await readListedBlobByPath<BlobLock>(drawOrderLockPath);
   if (lock?.token !== token) return;
   try {
     await del(drawOrderLockPath);
@@ -148,7 +148,7 @@ export async function listActiveHolds(): Promise<CellHold[]> {
   await Promise.all(
     holds.map(async (hold) => {
       if (new Date(hold.expiresAt).getTime() <= now) {
-        await deleteHold(hold.cellId);
+        await deleteHold(hold.cellId, hold.sessionId);
         return;
       }
       active.push(hold);
@@ -160,7 +160,16 @@ export async function listActiveHolds(): Promise<CellHold[]> {
 
 export async function getHold(cellId: string): Promise<CellHold | null> {
   if (!hasBlobToken) return memoryHolds.get(cellId) ?? null;
-  return readBlobByPath<CellHold>(`${holdPrefix}${cellId}.json`);
+  const holds = await listHolds();
+  return getNewestHold(holds.filter((hold) => hold.cellId === cellId));
+}
+
+export async function getSessionHold(cellId: string, sessionId: string): Promise<CellHold | null> {
+  if (!hasBlobToken) {
+    const hold = memoryHolds.get(cellId) ?? null;
+    return hold?.sessionId === sessionId ? hold : null;
+  }
+  return readJson<CellHold>(getHoldPath(cellId, sessionId));
 }
 
 export async function upsertHold(cellId: string, sessionId: string, name?: string) {
@@ -178,7 +187,7 @@ export async function upsertHold(cellId: string, sessionId: string, name?: strin
     return hold;
   }
 
-  await put(`${holdPrefix}${cellId}.json`, JSON.stringify(hold), {
+  await put(getHoldPath(cellId, sessionId), JSON.stringify(hold), {
     access: blobAccess,
     contentType: "application/json",
     allowOverwrite: true,
@@ -186,14 +195,20 @@ export async function upsertHold(cellId: string, sessionId: string, name?: strin
   return hold;
 }
 
-export async function deleteHold(cellId: string) {
+export async function deleteHold(cellId: string, sessionId?: string) {
   if (!hasBlobToken) {
-    memoryHolds.delete(cellId);
+    const hold = memoryHolds.get(cellId);
+    if (!sessionId || hold?.sessionId === sessionId) memoryHolds.delete(cellId);
     return;
   }
 
   try {
-    await del(`${holdPrefix}${cellId}.json`);
+    if (sessionId) {
+      await del(getHoldPath(cellId, sessionId));
+      return;
+    }
+    const blobs = await list({ prefix: `${holdPrefix}${cellId}/`, limit: 1000 });
+    await Promise.all(blobs.blobs.map((blob) => del(blob.pathname)));
   } catch {
     // Missing hold is fine.
   }
@@ -212,8 +227,11 @@ async function listHolds() {
   return holds.filter(isPresent);
 }
 
-async function readBlobByPath<T>(path: string): Promise<T | null> {
-  return readJson<T>(path);
+async function readListedBlobByPath<T>(path: string): Promise<T | null> {
+  const blobs = await list({ prefix: path, limit: 1 });
+  const blob = blobs.blobs.find((item) => item.pathname === path);
+  if (!blob) return null;
+  return readJson<T>(blob.pathname);
 }
 
 async function readJson<T>(pathname: string): Promise<T | null> {
@@ -228,6 +246,14 @@ async function readJson<T>(pathname: string): Promise<T | null> {
 
 function isPresent<T>(value: T | null): value is T {
   return value !== null;
+}
+
+function getHoldPath(cellId: string, sessionId: string) {
+  return `${holdPrefix}${cellId}/${encodeURIComponent(sessionId)}.json`;
+}
+
+function getNewestHold(holds: CellHold[]) {
+  return holds.toSorted((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0] ?? null;
 }
 
 async function getNextDrawOrder() {

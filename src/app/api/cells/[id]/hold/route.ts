@@ -27,7 +27,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (body.action === "release") {
     const hold = await getHold(id);
     if (hold?.sessionId === body.sessionId) {
-      await deleteHold(id);
+      await deleteHold(id, body.sessionId);
     }
     return NextResponse.json({ ok: true });
   }
