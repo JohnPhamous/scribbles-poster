@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, PointerEvent } from "react";
-import { motion } from "motion/react";
+import type { ComponentProps, CSSProperties, MouseEvent, PointerEvent } from "react";
+import { animate, motion, useMotionValue, useTransform } from "motion/react";
 import { drawStrokes, getStrokeDuration } from "@/lib/drawing";
 import { getCellIds } from "@/lib/poster-config";
 import { applyOptimisticDrawings, rollbackOptimisticDrawing, upsertDrawing } from "@/lib/poster-state";
@@ -45,6 +45,7 @@ type CellReplay = {
   elapsedMs: number;
   durationMs?: number;
 };
+type CellNameMotionStyle = ComponentProps<typeof motion.span>["style"];
 
 const cellIds = getCellIds();
 const cameraMs = 620;
@@ -84,6 +85,26 @@ export function PosterApp() {
   const selectedRef = useRef<Selection | null>(null);
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   selectedRef.current = selection;
+  const cameraStyle = useMemo(() => (selection ? getCameraStyle(selection.camera) : undefined), [selection]);
+  const labelCameraScale = useMotionValue(1);
+  const selectedCellWidth = selection?.camera.cell.width ?? 0;
+  const cellNameScale = useTransform(labelCameraScale, (value) => 1 / value);
+  const cellNameX = useTransform(labelCameraScale, (value) => 6 / value - 6);
+  const cellNameY = useTransform(labelCameraScale, (value) => 4 - 4 / value);
+  const cellNameWidth = useTransform(labelCameraScale, (value) => {
+    if (selectedCellWidth <= 0) return "calc(100% - 12px)";
+    return `${Math.max(0, selectedCellWidth * value - 12)}px`;
+  });
+  const cellNameStyle = useMemo(
+    () => ({
+      maxWidth: cellNameWidth,
+      scale: cellNameScale,
+      width: cellNameWidth,
+      x: cellNameX,
+      y: cellNameY,
+    }),
+    [cellNameScale, cellNameWidth, cellNameX, cellNameY],
+  );
 
   const config = snapshot?.config;
   const drawingsById = useMemo(() => {
@@ -173,6 +194,20 @@ export function PosterApp() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [config, orderedDrawings.length, replayMode, replayStartedAt]);
+
+  useEffect(() => {
+    if (!selection || !cameraStyle) {
+      labelCameraScale.set(1);
+      return;
+    }
+
+    const controls = animate(
+      labelCameraScale,
+      zoomPhase === "exit" ? 1 : cameraStyle.posterMotion.scale,
+      zoomPhase === "exit" ? cameraExitTransition : cameraTransition,
+    );
+    return () => controls.stop();
+  }, [cameraStyle, labelCameraScale, selection, zoomPhase]);
 
   useEffect(() => {
     const release = () => {
@@ -389,7 +424,6 @@ export function PosterApp() {
   }
 
   const replayActive = replayStartedAt !== null || replayElapsed > 0;
-  const cameraStyle = selection ? getCameraStyle(selection.camera) : undefined;
   const zoomCanvasScale = selection && cameraStyle ? getZoomCanvasScale(cameraStyle.posterMotion.scale) : 1;
   const replayByCellId = replayActive && config ? getReplayByCellId(replayMode, replayElapsed, orderedDrawings, config) : new Map<string, CellReplay>();
 
@@ -430,6 +464,7 @@ export function PosterApp() {
                 ownSessionId={sessionId}
                 replay={replayByCellId.get(cellId) ?? null}
                 renderScale={isZoomNeighborCell(cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
+                cellNameStyle={cellNameStyle}
                 onOpen={(camera) => openCell(cellId, camera)}
               />
             ))}
@@ -485,6 +520,7 @@ function PosterCell({
   ownSessionId,
   replay,
   renderScale,
+  cellNameStyle,
   onOpen,
 }: {
   cellId: string;
@@ -494,6 +530,7 @@ function PosterCell({
   ownSessionId: string;
   replay: CellReplay | null;
   renderScale: number;
+  cellNameStyle: CellNameMotionStyle;
   onOpen: (camera: CameraFrame) => void;
 }) {
   const heldByOther = Boolean(hold && hold.sessionId !== ownSessionId);
@@ -526,7 +563,11 @@ function PosterCell({
       aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : heldByOther ? " held" : " empty"}`}
     >
       <DrawingCanvas drawing={drawing} config={config} replay={replay} renderScale={renderScale} />
-      {drawing ? <span className="cellName">{drawing.name}</span> : null}
+      {drawing ? (
+        <motion.span className="cellName" style={cellNameStyle}>
+          {drawing.name}
+        </motion.span>
+      ) : null}
       {heldByOther ? <span className="cellHeld">Held</span> : null}
     </button>
   );
@@ -639,8 +680,6 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
       "--camera-dx": `${targetLeft - camera.poster.x - cellOffsetX * scale}px`,
       "--camera-dy": `${targetTop - camera.poster.y - cellOffsetY * scale}px`,
       "--camera-scale": scale,
-      "--camera-inverse-scale": 1 / scale,
-      "--camera-cell-size": `${targetSize}px`,
     } as CSSProperties,
     target: {
       "--zoom-from-x": `${camera.cell.x}px`,

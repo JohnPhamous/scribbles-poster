@@ -128,33 +128,8 @@ button {
   position: absolute;
   text-align: left;
   text-overflow: ellipsis;
-  transform: scale(1);
   transform-origin: left bottom;
-  transition:
-    transform 620ms cubic-bezier(0.16, 1, 0.2, 1),
-    bottom 620ms cubic-bezier(0.16, 1, 0.2, 1),
-    left 620ms cubic-bezier(0.16, 1, 0.2, 1),
-    font-size 620ms cubic-bezier(0.16, 1, 0.2, 1);
   white-space: nowrap;
-}
-
-.zoomActive .cellName {
-  bottom: calc(4px * var(--camera-inverse-scale));
-  font-size: 12px;
-  left: calc(6px * var(--camera-inverse-scale));
-  max-width: calc(var(--camera-cell-size) - 12px);
-  transform: scale(var(--camera-inverse-scale));
-  width: calc(var(--camera-cell-size) - 12px);
-}
-
-.zoomClosing .cellName {
-  bottom: 4px;
-  font-size: clamp(8px, 1.05vw, 14px);
-  left: 6px;
-  max-width: calc(100% - 12px);
-  transform: scale(1);
-  transition-timing-function: cubic-bezier(0.42, 0, 0.28, 1);
-  width: calc(100% - 12px);
 }
 
 .cellHeld {
