@@ -3,6 +3,7 @@ import { posterConfig } from "@/lib/poster-config";
 import { listActiveHolds, listCells } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 export const preferredRegion = "sfo1";
 
 export async function GET() {
