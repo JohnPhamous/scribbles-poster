@@ -491,10 +491,10 @@ export function PosterApp() {
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#000";
-    ctx.textAlign = "center";
+    ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = `700 ${Math.round(0.9 * scale)}px Arial, sans-serif`;
-    ctx.fillText(config.title, canvas.width / 2, (config.titleHeightIn * scale) / 2);
+    ctx.font = `700 ${Math.round(0.45 * scale)}px Arial, sans-serif`;
+    ctx.fillText(config.title, canvas.width * 0.05, (config.titleHeightIn * scale) / 2);
 
     const cellPx = config.cellSizeIn * scale;
     const xStart = config.gridOffsetXIn * scale;

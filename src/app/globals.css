@@ -57,15 +57,14 @@ button {
 .posterTitle {
   align-items: center;
   display: flex;
-  font-size: clamp(22px, 4vw, 58px);
+  font-size: clamp(11px, 2vw, 29px);
   font-weight: 800;
-  justify-content: center;
+  justify-content: flex-start;
   letter-spacing: 0;
   line-height: 1;
   overflow: hidden;
   padding: 0 5%;
-  text-align: center;
-  text-transform: uppercase;
+  text-align: left;
   white-space: nowrap;
 }
 
@@ -400,7 +399,7 @@ button {
   }
 
   .posterTitle {
-    font-size: clamp(18px, 10vw, 38px);
+    font-size: clamp(9px, 5vw, 19px);
   }
 
   .toolbar {
@@ -437,6 +436,6 @@ button {
   }
 
   .posterTitle {
-    font-size: 0.9in;
+    font-size: 0.45in;
   }
 }

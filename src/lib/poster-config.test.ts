@@ -8,8 +8,10 @@ describe("poster config", () => {
 
   it("keeps a padded poster grid away from the poster edge", () => {
     expect(posterConfig.gridPaddingIn).toBe(0.5);
+    expect(posterConfig.titleHeightIn).toBe(2);
+    expect(posterConfig.title).toBe("204 scribbles by friends");
     expect(posterConfig.columns).toBe(12);
-    expect(posterConfig.rows).toBe(16);
+    expect(posterConfig.rows).toBe(17);
     expect(posterConfig.gridOffsetXIn).toBeGreaterThanOrEqual(posterConfig.gridPaddingIn);
     expect(posterConfig.gridOffsetYIn).toBeGreaterThanOrEqual(posterConfig.gridPaddingIn);
   });

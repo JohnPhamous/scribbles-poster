@@ -2,7 +2,7 @@ import type { PosterConfig } from "./types";
 
 const posterWidthIn = 24;
 const posterHeightIn = 36;
-const titleHeightIn = 4;
+const titleHeightIn = 2;
 const targetCellSizeIn = 2;
 const gridPaddingIn = 0.5;
 const gridLayout = getBestGridLayout({
@@ -14,7 +14,7 @@ const gridLayout = getBestGridLayout({
 });
 
 export const posterConfig: PosterConfig = {
-  title: "POSTER TITLE",
+  title: `${gridLayout.columns * gridLayout.rows} scribbles by friends`,
   posterWidthIn,
   posterHeightIn,
   titleHeightIn,
@@ -66,6 +66,7 @@ function getBestGridLayout({
   const drawableWidthIn = posterWidthIn - gridPaddingIn * 2;
   const drawableHeightIn = posterHeightIn - titleHeightIn - gridPaddingIn * 2;
   const minCellSizeIn = targetCellSizeIn * 0.9;
+  const maxCellSizeIn = targetCellSizeIn * 1.15;
   const maxColumns = Math.max(1, Math.floor(drawableWidthIn / minCellSizeIn));
   const maxRows = Math.max(1, Math.floor(drawableHeightIn / minCellSizeIn));
   let best = {
@@ -79,6 +80,7 @@ function getBestGridLayout({
     for (let rows = 1; rows <= maxRows; rows += 1) {
       const cellSizeIn = Math.min(drawableWidthIn / columns, drawableHeightIn / rows);
       if (cellSizeIn < minCellSizeIn) continue;
+      if (cellSizeIn > maxCellSizeIn) continue;
 
       const usedAreaIn = columns * rows * cellSizeIn * cellSizeIn;
       const count = columns * rows;
