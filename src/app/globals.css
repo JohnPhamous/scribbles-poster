@@ -110,7 +110,7 @@ button {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 999px;
   content: "";
-  height: min(8px, 12%);
+  height: min(5px, 8%);
   left: 50%;
   opacity: 1;
   pointer-events: none;
@@ -118,11 +118,11 @@ button {
   top: 50%;
   transform: translate(-50%, -50%);
   transition: opacity 220ms ease;
-  width: min(8px, 12%);
+  width: min(5px, 8%);
   z-index: 1;
 }
 
-.zoomActive .cell.available::before {
+.zoomActive .cell.selected.available::before {
   opacity: 0;
 }
 

@@ -408,6 +408,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
                 config={config}
                 drawing={drawingsById.get(cellId)}
                 replay={replayByCellId.get(cellId) ?? null}
+                isSelected={selection?.cellId === cellId}
                 renderScale={isZoomNeighborCell(cellIds, cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
                 onOpen={(camera) => openCell(cellId, camera)}
               />
@@ -464,6 +465,7 @@ function PosterCell({
   config,
   drawing,
   replay,
+  isSelected,
   renderScale,
   onOpen,
 }: {
@@ -471,6 +473,7 @@ function PosterCell({
   config: PosterConfig;
   drawing?: CellDrawing;
   replay: CellReplay | null;
+  isSelected: boolean;
   renderScale: number;
   onOpen: (camera: CameraFrame) => void;
 }) {
@@ -498,7 +501,7 @@ function PosterCell({
 
   return (
     <button
-      className={`cell ${drawing ? "occupied" : ""} ${isAvailable ? "available" : ""}`}
+      className={`cell ${drawing ? "occupied" : ""} ${isAvailable ? "available" : ""} ${isSelected ? "selected" : ""}`}
       type="button"
       onClick={handleClick}
       aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : " empty"}`}
