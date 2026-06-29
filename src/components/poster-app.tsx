@@ -578,6 +578,7 @@ function PosterCell({
   const hasHold = Boolean(hold && !drawing);
   const heldByOther = Boolean(hasHold && hold?.sessionId !== ownSessionId);
   const heldByOwner = Boolean(hasHold && hold?.sessionId === ownSessionId);
+  const isAvailable = !drawing && !hasHold;
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
     if (hasHold) return;
@@ -602,7 +603,7 @@ function PosterCell({
 
   return (
     <button
-      className={`cell ${drawing ? "occupied" : ""} ${hasHold ? "held" : ""} ${heldByOther ? "heldOther" : ""} ${heldByOwner ? "heldOwn" : ""}`}
+      className={`cell ${drawing ? "occupied" : ""} ${hasHold ? "held" : ""} ${heldByOther ? "heldOther" : ""} ${heldByOwner ? "heldOwn" : ""} ${isAvailable ? "available" : ""}`}
       type="button"
       disabled={hasHold}
       onClick={handleClick}

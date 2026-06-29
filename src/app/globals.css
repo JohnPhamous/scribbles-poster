@@ -107,6 +107,26 @@ button {
   z-index: 1;
 }
 
+.cell.available::before {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+  content: "";
+  height: min(8px, 12%);
+  left: 50%;
+  opacity: 1;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: opacity 220ms ease;
+  width: min(8px, 12%);
+  z-index: 1;
+}
+
+.zoomActive .cell.available::before {
+  opacity: 0;
+}
+
 .cell:hover::after,
 .cell:focus-visible::after {
   opacity: 1;
