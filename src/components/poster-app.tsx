@@ -78,8 +78,8 @@ function createOptimisticHold(cellId: string, sessionId: string, holdMs: number)
   };
 }
 
-export function PosterApp() {
-  const [snapshot, setSnapshot] = useState<PosterSnapshot | null>(null);
+export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot }) {
+  const [snapshot, setSnapshot] = useState<PosterSnapshot | null>(() => initialSnapshot);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [zoomPhase, setZoomPhase] = useState<"enter" | "idle" | "exit">("idle");
   const [sessionId, setSessionId] = useState("");
@@ -157,7 +157,6 @@ export function PosterApp() {
     }
     setSessionId(existing);
     setShowPrintTools(new URLSearchParams(window.location.search).get("print") === "1");
-    refresh().catch(() => setMessage("Could not load poster."));
 
     let timer = 0;
     const scheduleRefresh = () => {

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { isValidCellId } from "@/lib/poster-config";
+import { posterCellsCacheTag } from "@/lib/poster-snapshot";
 import { deleteHold, getCell, getSessionHold, hasPersistentStorage, saveCell } from "@/lib/storage";
 import type { CellHold } from "@/lib/types";
 import { validateDrawing } from "@/lib/validation";
@@ -58,6 +60,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   }
 
   await deleteHold(id, body.sessionId, body.holdStartedAt);
+  revalidateTag(posterCellsCacheTag, { expire: 0 });
   return NextResponse.json(savedDrawing);
 }
 
