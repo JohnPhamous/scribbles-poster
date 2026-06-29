@@ -408,41 +408,44 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
 
   return (
     <main className={`app ${showToolbar ? "toolbarVisible" : "toolbarHidden"} ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
-      <section className="stage" aria-label="Collaborative poster">
-        <motion.div
-          className="poster"
-          style={
-            {
-              "--poster-width": config.posterWidthIn,
-              "--poster-height": config.posterHeightIn,
-              "--title-height": config.titleHeightIn,
-              "--columns": config.columns,
-              "--rows": config.rows,
-              "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
-              "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
-              ...posterMotionStyle,
-              ...cameraStyle?.poster,
-            } as PosterMotionStyle
-          }
-          initial={false}
-        >
-          <header className="posterTitle">{config.title}</header>
-          <div className="posterGrid">
-            {cellIds.map((cellId) => (
-              <PosterCell
-                key={cellId}
-                cellId={cellId}
-                config={config}
-                drawing={drawingsById.get(cellId)}
-                replay={replayByCellId.get(cellId) ?? null}
-                isSelected={selection?.cellId === cellId}
-                renderScale={shouldRenderHighResolutionCell(cellIds, cellId, selection?.cellId, panSourceCellId, config) ? zoomCanvasScale : 1}
-                onOpen={(camera) => openCell(cellId, camera)}
-              />
-            ))}
-          </div>
-        </motion.div>
-      </section>
+      <div className="posterExperience">
+        <section className="stage" aria-label="Collaborative poster">
+          <motion.div
+            className="poster"
+            style={
+              {
+                "--poster-width": config.posterWidthIn,
+                "--poster-height": config.posterHeightIn,
+                "--title-height": config.titleHeightIn,
+                "--columns": config.columns,
+                "--rows": config.rows,
+                "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
+                "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
+                ...posterMotionStyle,
+                ...cameraStyle?.poster,
+              } as PosterMotionStyle
+            }
+            initial={false}
+          >
+            <header className="posterTitle">{config.title}</header>
+            <div className="posterGrid">
+              {cellIds.map((cellId) => (
+                <PosterCell
+                  key={cellId}
+                  cellId={cellId}
+                  config={config}
+                  drawing={drawingsById.get(cellId)}
+                  replay={replayByCellId.get(cellId) ?? null}
+                  isSelected={selection?.cellId === cellId}
+                  renderScale={shouldRenderHighResolutionCell(cellIds, cellId, selection?.cellId, panSourceCellId, config) ? zoomCanvasScale : 1}
+                  onOpen={(camera) => openCell(cellId, camera)}
+                />
+              ))}
+            </div>
+          </motion.div>
+        </section>
+        <PosterInvite config={config} />
+      </div>
 
       {showToolbar ? (
         <div className="toolbar noPrint">
@@ -490,6 +493,26 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
         />
       ) : null}
     </main>
+  );
+}
+
+function PosterInvite({ config }: { config: PosterConfig }) {
+  return (
+    <aside className="posterInvite noPrint" aria-label="Invitation note">
+      <svg className="posterInviteArrow posterInviteArrowDesktop" viewBox="0 0 170 86" aria-hidden="true">
+        <path d="M160 24C122 24 86 33 43 59" />
+        <path d="M43 59C57 51 64 43 70 33" />
+        <path d="M43 59C58 60 67 66 76 76" />
+      </svg>
+      <svg className="posterInviteArrow posterInviteArrowMobile" viewBox="0 0 128 96" aria-hidden="true">
+        <path d="M40 8C52 35 69 52 77 80" />
+        <path d="M77 80C67 70 57 66 44 65" />
+        <path d="M77 80C83 67 91 58 103 52" />
+      </svg>
+      <p>Kathy and I are printing this as a poster for our home.</p>
+      <p>We would love for you to draw a scribble.</p>
+      <p className="posterInviteSize">It will print at {formatPosterSize(config)}.</p>
+    </aside>
   );
 }
 
@@ -789,6 +812,14 @@ function shouldRenderHighResolutionCell(
     isZoomNeighborCell(cellIds, cellId, selectedCellId, config) ||
     isZoomNeighborCell(cellIds, cellId, panSourceCellId ?? undefined, config)
   );
+}
+
+function formatPosterSize(config: Pick<PosterConfig, "posterWidthIn" | "posterHeightIn">) {
+  return `${formatInches(config.posterWidthIn)}" x ${formatInches(config.posterHeightIn)}"`;
+}
+
+function formatInches(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
 function getOrderedDrawings(drawings: CellDrawing[]) {

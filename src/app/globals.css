@@ -47,6 +47,14 @@ button {
   align-items: start;
 }
 
+.posterExperience {
+  align-items: center;
+  display: flex;
+  gap: clamp(28px, 4vw, 72px);
+  justify-content: center;
+  width: 100%;
+}
+
 .toolbarHidden .stage {
   min-height: auto;
 }
@@ -99,6 +107,55 @@ button {
   min-height: 0;
   min-width: 0;
   width: var(--grid-width-percent);
+}
+
+.posterInvite {
+  background: #fff7f8;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  color: #111;
+  flex: 0 0 clamp(250px, 24vw, 360px);
+  font-family: var(--font-title), Arial, Helvetica, sans-serif;
+  font-size: clamp(28px, 3.1vw, 48px);
+  font-synthesis: none;
+  line-height: 0.98;
+  padding: clamp(22px, 2.5vw, 34px);
+  position: relative;
+  transform: rotate(0.4deg);
+}
+
+.posterInvite p {
+  margin: 0;
+}
+
+.posterInvite p + p {
+  margin-top: 0.75em;
+}
+
+.posterInviteSize {
+  color: #f35b04;
+}
+
+.posterInviteArrow {
+  fill: none;
+  pointer-events: none;
+  position: absolute;
+  stroke: #f35b04;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 8;
+}
+
+.posterInviteArrowDesktop {
+  left: -154px;
+  top: 44%;
+  transform: rotate(-7deg);
+  width: 170px;
+}
+
+.posterInviteArrowMobile {
+  display: none;
 }
 
 .cell {
@@ -248,6 +305,11 @@ button {
 }
 
 .zoomActive .toolbar {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.zoomActive .posterInvite {
   opacity: 0;
   pointer-events: none;
 }
@@ -510,6 +572,12 @@ button {
     padding: 12px;
   }
 
+  .posterExperience {
+    flex-direction: column;
+    gap: 22px;
+    padding: 0 12px;
+  }
+
   .stage {
     min-height: calc(100vh - 96px);
   }
@@ -526,6 +594,27 @@ button {
       96vw,
       calc((100vh - 24px) * var(--poster-width) / var(--poster-height))
     );
+  }
+
+  .posterInvite {
+    flex: none;
+    font-size: clamp(28px, 10vw, 42px);
+    max-width: min(560px, 100%);
+    order: -1;
+    padding: 20px 22px;
+    transform: rotate(-0.5deg);
+    width: 100%;
+  }
+
+  .posterInviteArrowDesktop {
+    display: none;
+  }
+
+  .posterInviteArrowMobile {
+    bottom: -76px;
+    display: block;
+    left: 46%;
+    width: 128px;
   }
 
   .posterTitle {
