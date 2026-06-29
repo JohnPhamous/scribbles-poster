@@ -649,6 +649,26 @@ function CellOverlay({
   onClose: () => void;
   onSave: (drawing: CellDrawing) => void;
 }) {
+  const [isEditSurfaceReady, setIsEditSurfaceReady] = useState(selection.kind !== "edit");
+
+  useEffect(() => {
+    if (selection.kind !== "edit") {
+      setIsEditSurfaceReady(true);
+      return;
+    }
+
+    if (phase === "exit") {
+      setIsEditSurfaceReady(false);
+      return;
+    }
+
+    setIsEditSurfaceReady(false);
+    const timer = window.setTimeout(() => {
+      setIsEditSurfaceReady(true);
+    }, cameraMs);
+    return () => window.clearTimeout(timer);
+  }, [phase, selection.cellId, selection.kind]);
+
   return (
     <div className="overlay noPrint">
       <motion.div
@@ -658,7 +678,16 @@ function CellOverlay({
         {selection.kind === "view" ? (
           <ReadOnlyCell drawing={selection.drawing} config={config} onClose={onClose} />
         ) : (
-          <Editor cellId={selection.cellId} hold={selection.hold} config={config} sessionId={sessionId} isSaving={isSaving} onClose={onClose} onSave={onSave} />
+          <Editor
+            cellId={selection.cellId}
+            hold={selection.hold}
+            config={config}
+            sessionId={sessionId}
+            isSaving={isSaving}
+            isSurfaceReady={isEditSurfaceReady}
+            onClose={onClose}
+            onSave={onSave}
+          />
         )}
       </motion.div>
     </div>
@@ -805,6 +834,7 @@ function Editor({
   config,
   sessionId,
   isSaving,
+  isSurfaceReady,
   onClose,
   onSave,
 }: {
@@ -813,6 +843,7 @@ function Editor({
   config: PosterConfig;
   sessionId: string;
   isSaving: boolean;
+  isSurfaceReady: boolean;
   onClose: () => void;
   onSave: (drawing: CellDrawing) => void;
 }) {
@@ -956,7 +987,7 @@ function Editor({
 
   return (
     <>
-      <div className="editorCanvasWrap">
+      <div className={`editorCanvasWrap ${isSurfaceReady ? "" : "surfacePending"}`}>
         <canvas
           ref={canvasRef}
           className="editorCanvas"
