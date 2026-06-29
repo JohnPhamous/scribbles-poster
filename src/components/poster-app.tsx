@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, PointerEvent } from "react";
 import { motion } from "motion/react";
 import { drawStrokes, getStrokeDuration } from "@/lib/drawing";
@@ -55,6 +55,8 @@ const cameraExitTransition = {
   duration: cameraMs / 1000,
   ease: [0.42, 0, 0.28, 1],
 } as const;
+const zoomCanvasNeighborRadius = 1;
+const maxZoomCanvasScale = 14;
 
 function createOptimisticHold(cellId: string, sessionId: string, holdMs: number): CellHold {
   const now = new Date();
@@ -421,6 +423,7 @@ export function PosterApp() {
 
   const replayActive = replayStartedAt !== null || replayElapsed > 0;
   const cameraStyle = selection ? getCameraStyle(selection.camera) : undefined;
+  const zoomCanvasScale = selection && cameraStyle ? getZoomCanvasScale(cameraStyle.posterMotion.scale) : 1;
   const replayByCellId = replayActive && config ? getReplayByCellId(replayMode, replayElapsed, orderedDrawings, config) : new Map<string, CellReplay>();
 
   return (
@@ -459,6 +462,7 @@ export function PosterApp() {
                 hold={holdsById.get(cellId)}
                 ownSessionId={sessionId}
                 replay={replayByCellId.get(cellId) ?? null}
+                renderScale={isZoomNeighborCell(cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
                 onOpen={(camera) => openCell(cellId, camera)}
               />
             ))}
@@ -513,6 +517,7 @@ function PosterCell({
   hold,
   ownSessionId,
   replay,
+  renderScale,
   onOpen,
 }: {
   cellId: string;
@@ -521,6 +526,7 @@ function PosterCell({
   hold?: CellHold;
   ownSessionId: string;
   replay: CellReplay | null;
+  renderScale: number;
   onOpen: (camera: CameraFrame) => void;
 }) {
   const heldByOther = Boolean(hold && hold.sessionId !== ownSessionId);
@@ -552,7 +558,7 @@ function PosterCell({
       onClick={handleClick}
       aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : heldByOther ? " held" : " empty"}`}
     >
-      <DrawingCanvas drawing={drawing} config={config} replay={replay} />
+      <DrawingCanvas drawing={drawing} config={config} replay={replay} renderScale={renderScale} />
       {drawing ? <span className="cellName">{drawing.name}</span> : null}
       {heldByOther ? <span className="cellHeld">Held</span> : null}
     </button>
@@ -563,20 +569,23 @@ function DrawingCanvas({
   drawing,
   config,
   replay,
+  renderScale = 1,
 }: {
   drawing?: CellDrawing;
   config: PosterConfig;
   replay: CellReplay | null;
+  renderScale?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const render = () => {
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
-      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      const backingScale = Math.max(1, renderScale);
+      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr * backingScale));
+      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr * backingScale));
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.setTransform(canvas.width / config.canvasSize, 0, 0, canvas.height / config.canvasSize, 0, 0);
@@ -599,7 +608,7 @@ function DrawingCanvas({
     render();
     const timer = window.setTimeout(render, cameraMs + 40);
     return () => window.clearTimeout(timer);
-  }, [config, drawing, replay]);
+  }, [config, drawing, replay, renderScale]);
 
   return <canvas ref={canvasRef} className="drawingCanvas" />;
 }
@@ -687,6 +696,27 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
       opacity: 1,
     },
   };
+}
+
+function getZoomCanvasScale(cameraScale: number) {
+  return Math.max(1, Math.min(maxZoomCanvasScale, Math.ceil(cameraScale)));
+}
+
+function isZoomNeighborCell(cellId: string, selectedCellId: string | undefined, config: PosterConfig) {
+  if (!selectedCellId) return false;
+  const cellIndex = cellIds.indexOf(cellId);
+  const selectedIndex = cellIds.indexOf(selectedCellId);
+  if (cellIndex < 0 || selectedIndex < 0) return false;
+
+  const cellCol = cellIndex % config.columns;
+  const cellRow = Math.floor(cellIndex / config.columns);
+  const selectedCol = selectedIndex % config.columns;
+  const selectedRow = Math.floor(selectedIndex / config.columns);
+
+  return (
+    Math.abs(cellCol - selectedCol) <= zoomCanvasNeighborRadius &&
+    Math.abs(cellRow - selectedRow) <= zoomCanvasNeighborRadius
+  );
 }
 
 function getOrderedDrawings(drawings: CellDrawing[]) {
