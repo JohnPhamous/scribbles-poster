@@ -14,7 +14,8 @@ const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
 const memoryCells = new Map<string, CellDrawing>();
 const memoryHolds = new Map<string, CellHold>();
-const listCacheMs = 1_200;
+const cellsListCacheMs = 1_200;
+const holdsListCacheMs = 300;
 
 let cellsCache: { expiresAt: number; value: CellDrawing[] } | null = null;
 let holdsCache: { expiresAt: number; value: CellHold[] } | null = null;
@@ -41,7 +42,7 @@ export async function listCells(options?: { bypassCache?: boolean }): Promise<Ce
   );
 
   const value = drawings.filter(isPresent);
-  cellsCache = { expiresAt: Date.now() + listCacheMs, value };
+  cellsCache = { expiresAt: Date.now() + cellsListCacheMs, value };
   return value;
 }
 
@@ -311,7 +312,7 @@ async function listHolds() {
   );
 
   const value = holds.filter(isPresent);
-  holdsCache = { expiresAt: Date.now() + listCacheMs, value };
+  holdsCache = { expiresAt: Date.now() + holdsListCacheMs, value };
   return value;
 }
 

@@ -63,6 +63,9 @@ const zoomCanvasNeighborRadius = 1;
 const maxZoomCanvasScale = 14;
 const authorLabelFontRatio = 0.08;
 const authorLabelMarginRatio = 0.05;
+const visibleRefreshMs = 1_000;
+const hiddenRefreshMs = 5_000;
+const heartbeatMs = 60_000;
 
 function createOptimisticHold(cellId: string, sessionId: string, holdMs: number): CellHold {
   const now = new Date();
@@ -152,10 +155,30 @@ export function PosterApp() {
     setSessionId(existing);
     setShowPrintTools(new URLSearchParams(window.location.search).get("print") === "1");
     refresh().catch(() => setMessage("Could not load poster."));
-    const timer = window.setInterval(() => {
+
+    let timer = 0;
+    const scheduleRefresh = () => {
+      window.clearTimeout(timer);
+      const delay = document.hidden ? hiddenRefreshMs : visibleRefreshMs;
+      timer = window.setTimeout(() => {
+        refresh().catch(() => undefined).finally(scheduleRefresh);
+      }, delay);
+    };
+    const refreshNow = () => {
       refresh().catch(() => undefined);
-    }, 3500);
-    return () => window.clearInterval(timer);
+      scheduleRefresh();
+    };
+
+    scheduleRefresh();
+    window.addEventListener("focus", refreshNow);
+    window.addEventListener("online", refreshNow);
+    document.addEventListener("visibilitychange", refreshNow);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", refreshNow);
+      window.removeEventListener("online", refreshNow);
+      document.removeEventListener("visibilitychange", refreshNow);
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -178,10 +201,21 @@ export function PosterApp() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "heartbeat", sessionId }),
-      }).catch(() => undefined);
-    }, 60_000);
+      })
+        .then(async (response) => {
+          if (response.ok) return;
+          const result = (await response.json().catch(() => null)) as { reason?: string } | null;
+          if (response.status === 410 || result?.reason === "invalid") {
+            setSelection(null);
+            setZoomPhase("idle");
+            setMessage("Your cell hold expired. Pick another open cell.");
+            await refresh().catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    }, heartbeatMs);
     return () => window.clearInterval(timer);
-  }, [selection, sessionId]);
+  }, [refresh, selection, sessionId]);
 
   useEffect(() => {
     if (replayStartedAt === null || !config) return;
