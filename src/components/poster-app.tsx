@@ -639,6 +639,8 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
       "--camera-dx": `${targetLeft - camera.poster.x - cellOffsetX * scale}px`,
       "--camera-dy": `${targetTop - camera.poster.y - cellOffsetY * scale}px`,
       "--camera-scale": scale,
+      "--camera-inverse-scale": 1 / scale,
+      "--camera-cell-size": `${targetSize}px`,
     } as CSSProperties,
     target: {
       "--zoom-from-x": `${camera.cell.x}px`,
