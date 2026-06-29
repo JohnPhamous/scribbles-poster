@@ -46,6 +46,7 @@ type CellReplay = {
   durationMs?: number;
 };
 type CellNameMotionStyle = ComponentProps<typeof motion.span>["style"];
+type PosterMotionStyle = ComponentProps<typeof motion.div>["style"];
 
 const cellIds = getCellIds();
 const cameraMs = 620;
@@ -86,23 +87,35 @@ export function PosterApp() {
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   selectedRef.current = selection;
   const cameraStyle = useMemo(() => (selection ? getCameraStyle(selection.camera) : undefined), [selection]);
-  const labelCameraScale = useMotionValue(1);
+  const posterX = useMotionValue(0);
+  const posterY = useMotionValue(0);
+  const posterScale = useMotionValue(1);
   const selectedCellWidth = selection?.camera.cell.width ?? 0;
-  const cellNameScale = useTransform(labelCameraScale, (value) => 1 / value);
-  const cellNameX = useTransform(labelCameraScale, (value) => 6 / value - 6);
-  const cellNameY = useTransform(labelCameraScale, (value) => 4 - 4 / value);
-  const cellNameWidth = useTransform(labelCameraScale, (value) => {
+  const cellNameScale = useTransform(posterScale, (value) => 1 / value);
+  const cellNameX = useTransform(posterScale, (value) => 6 / value - 6);
+  const cellNameY = useTransform(posterScale, (value) => 4 - 4 / value);
+  const cellNameWidth = useTransform(posterScale, (value) => {
     if (selectedCellWidth <= 0) return "calc(100% - 12px)";
     return `${Math.max(0, selectedCellWidth * value - 12)}px`;
   });
+  const posterMotionStyle = useMemo(
+    () =>
+      ({
+        x: posterX,
+        y: posterY,
+        scale: posterScale,
+      }) satisfies PosterMotionStyle,
+    [posterScale, posterX, posterY],
+  );
   const cellNameStyle = useMemo(
-    () => ({
-      maxWidth: cellNameWidth,
-      scale: cellNameScale,
-      width: cellNameWidth,
-      x: cellNameX,
-      y: cellNameY,
-    }),
+    () =>
+      ({
+        maxWidth: cellNameWidth,
+        scale: cellNameScale,
+        width: cellNameWidth,
+        x: cellNameX,
+        y: cellNameY,
+      }) satisfies CellNameMotionStyle,
     [cellNameScale, cellNameWidth, cellNameX, cellNameY],
   );
 
@@ -197,17 +210,23 @@ export function PosterApp() {
 
   useEffect(() => {
     if (!selection || !cameraStyle) {
-      labelCameraScale.set(1);
+      posterX.set(0);
+      posterY.set(0);
+      posterScale.set(1);
       return;
     }
 
-    const controls = animate(
-      labelCameraScale,
-      zoomPhase === "exit" ? 1 : cameraStyle.posterMotion.scale,
-      zoomPhase === "exit" ? cameraExitTransition : cameraTransition,
-    );
-    return () => controls.stop();
-  }, [cameraStyle, labelCameraScale, selection, zoomPhase]);
+    const target = zoomPhase === "exit" ? { x: 0, y: 0, scale: 1 } : cameraStyle.posterMotion;
+    const transition = zoomPhase === "exit" ? cameraExitTransition : cameraTransition;
+    const controls = [
+      animate(posterX, target.x, transition),
+      animate(posterY, target.y, transition),
+      animate(posterScale, target.scale, transition),
+    ];
+    return () => {
+      for (const control of controls) control.stop();
+    };
+  }, [cameraStyle, posterScale, posterX, posterY, selection, zoomPhase]);
 
   useEffect(() => {
     const release = () => {
@@ -441,16 +460,11 @@ export function PosterApp() {
               "--rows": config.rows,
               "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
               "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
+              ...posterMotionStyle,
               ...cameraStyle?.poster,
-            } as CSSProperties
+            } as PosterMotionStyle
           }
           initial={false}
-          animate={
-            selection && cameraStyle && zoomPhase !== "exit"
-              ? cameraStyle.posterMotion
-              : { x: 0, y: 0, scale: 1 }
-          }
-          transition={zoomPhase === "exit" ? cameraExitTransition : cameraTransition}
         >
           <header className="posterTitle">{config.title}</header>
           <div className="posterGrid">
