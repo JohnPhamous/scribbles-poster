@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties, MouseEvent, PointerEvent } from "react";
-import { animate, motion, useMotionValue, useTransform } from "motion/react";
+import { LayoutGroup, animate, motion, useMotionValue, useTransform } from "motion/react";
 import { drawStrokes, getStrokeDuration } from "@/lib/drawing";
 import { getCellIds } from "@/lib/poster-config";
 import { applyOptimisticDrawings, rollbackOptimisticDrawing, upsertDrawing } from "@/lib/poster-state";
@@ -27,6 +27,7 @@ type CameraFrame = {
 type CameraStyle = {
   poster: CSSProperties;
   target: CSSProperties;
+  targetSize: number;
   posterMotion: {
     x: number;
     y: number;
@@ -47,6 +48,7 @@ type CellReplay = {
 };
 type CellNameMotionStyle = ComponentProps<typeof motion.span>["style"];
 type PosterMotionStyle = ComponentProps<typeof motion.div>["style"];
+type ZoomPanelMotionStyle = ComponentProps<typeof motion.div>["style"];
 
 const cellIds = getCellIds();
 const cameraMs = 620;
@@ -90,6 +92,9 @@ export function PosterApp() {
   const posterX = useMotionValue(0);
   const posterY = useMotionValue(0);
   const posterScale = useMotionValue(1);
+  const panelX = useMotionValue(0);
+  const panelY = useMotionValue(0);
+  const panelScale = useMotionValue(1);
   const selectedCellWidth = selection?.camera.cell.width ?? 0;
   const cellNameScale = useTransform(posterScale, (value) => 1 / value);
   const cellNameX = useTransform(posterScale, (value) => 6 / value - 6);
@@ -117,6 +122,34 @@ export function PosterApp() {
         y: cellNameY,
       }) satisfies CellNameMotionStyle,
     [cellNameScale, cellNameWidth, cellNameX, cellNameY],
+  );
+  const detailNameScale = useTransform(panelScale, (value) => 1 / Math.max(0.001, value));
+  const detailNameX = useTransform(panelScale, (value) => 6 / Math.max(0.001, value) - 6);
+  const detailNameY = useTransform(panelScale, (value) => 4 - 4 / Math.max(0.001, value));
+  const detailNameWidth = useTransform(panelScale, (value) => {
+    if (!cameraStyle) return "calc(100% - 12px)";
+    return `${Math.max(0, cameraStyle.targetSize * value - 12)}px`;
+  });
+  const detailNameStyle = useMemo(
+    () =>
+      ({
+        maxWidth: detailNameWidth,
+        scale: detailNameScale,
+        width: detailNameWidth,
+        x: detailNameX,
+        y: detailNameY,
+      }) satisfies CellNameMotionStyle,
+    [detailNameScale, detailNameWidth, detailNameX, detailNameY],
+  );
+  const zoomPanelMotionStyle = useMemo(
+    () =>
+      ({
+        ...cameraStyle?.target,
+        x: panelX,
+        y: panelY,
+        scale: panelScale,
+      }) satisfies ZoomPanelMotionStyle,
+    [cameraStyle?.target, panelScale, panelX, panelY],
   );
 
   const config = snapshot?.config;
@@ -208,25 +241,39 @@ export function PosterApp() {
     return () => cancelAnimationFrame(frame);
   }, [config, orderedDrawings.length, replayMode, replayStartedAt]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selection || !cameraStyle) {
       posterX.set(0);
       posterY.set(0);
       posterScale.set(1);
+      panelX.set(0);
+      panelY.set(0);
+      panelScale.set(1);
       return;
     }
 
-    const target = zoomPhase === "exit" ? { x: 0, y: 0, scale: 1 } : cameraStyle.posterMotion;
+    const posterTarget = zoomPhase === "exit" ? { x: 0, y: 0, scale: 1 } : cameraStyle.posterMotion;
+    const panelTarget = zoomPhase === "exit" ? cameraStyle.targetMotion : { x: 0, y: 0, scale: 1 };
     const transition = zoomPhase === "exit" ? cameraExitTransition : cameraTransition;
+
+    if (zoomPhase === "enter") {
+      panelX.set(cameraStyle.targetMotion.x);
+      panelY.set(cameraStyle.targetMotion.y);
+      panelScale.set(cameraStyle.targetMotion.scale);
+    }
+
     const controls = [
-      animate(posterX, target.x, transition),
-      animate(posterY, target.y, transition),
-      animate(posterScale, target.scale, transition),
+      animate(posterX, posterTarget.x, transition),
+      animate(posterY, posterTarget.y, transition),
+      animate(posterScale, posterTarget.scale, transition),
+      animate(panelX, panelTarget.x, transition),
+      animate(panelY, panelTarget.y, transition),
+      animate(panelScale, panelTarget.scale, transition),
     ];
     return () => {
       for (const control of controls) control.stop();
     };
-  }, [cameraStyle, posterScale, posterX, posterY, selection, zoomPhase]);
+  }, [cameraStyle, panelScale, panelX, panelY, posterScale, posterX, posterY, selection, zoomPhase]);
 
   useEffect(() => {
     const release = () => {
@@ -446,83 +493,89 @@ export function PosterApp() {
   const zoomCanvasScale = selection && cameraStyle ? getZoomCanvasScale(cameraStyle.posterMotion.scale) : 1;
   const replayByCellId = replayActive && config ? getReplayByCellId(replayMode, replayElapsed, orderedDrawings, config) : new Map<string, CellReplay>();
 
+  const selectedAuthorLayoutId = selection?.kind === "view" ? `author-label-${selection.cellId}` : undefined;
+
   return (
-    <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
-      <section className="stage" aria-label="Collaborative poster">
-        <motion.div
-          className="poster"
-          style={
-            {
-              "--poster-width": config.posterWidthIn,
-              "--poster-height": config.posterHeightIn,
-              "--title-height": config.titleHeightIn,
-              "--columns": config.columns,
-              "--rows": config.rows,
-              "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
-              "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
-              ...posterMotionStyle,
-              ...cameraStyle?.poster,
-            } as PosterMotionStyle
-          }
-          initial={false}
-        >
-          <header className="posterTitle">{config.title}</header>
-          <div className="posterGrid">
-            {cellIds.map((cellId) => (
-              <PosterCell
-                key={cellId}
-                cellId={cellId}
-                config={config}
-                drawing={drawingsById.get(cellId)}
-                hold={holdsById.get(cellId)}
-                ownSessionId={sessionId}
-                replay={replayByCellId.get(cellId) ?? null}
-                renderScale={isZoomNeighborCell(cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
-                cellNameStyle={cellNameStyle}
-                onOpen={(camera) => openCell(cellId, camera)}
-              />
-            ))}
-          </div>
-        </motion.div>
-      </section>
+    <LayoutGroup id="poster-author-labels">
+      <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
+        <section className="stage" aria-label="Collaborative poster">
+          <motion.div
+            className="poster"
+            style={
+              {
+                "--poster-width": config.posterWidthIn,
+                "--poster-height": config.posterHeightIn,
+                "--title-height": config.titleHeightIn,
+                "--columns": config.columns,
+                "--rows": config.rows,
+                "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
+                "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
+                ...posterMotionStyle,
+                ...cameraStyle?.poster,
+              } as PosterMotionStyle
+            }
+            initial={false}
+          >
+            <header className="posterTitle">{config.title}</header>
+            <div className="posterGrid">
+              {cellIds.map((cellId) => (
+                <PosterCell
+                  key={cellId}
+                  cellId={cellId}
+                  config={config}
+                  drawing={drawingsById.get(cellId)}
+                  hold={holdsById.get(cellId)}
+                  ownSessionId={sessionId}
+                  replay={replayByCellId.get(cellId) ?? null}
+                  renderScale={isZoomNeighborCell(cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
+                  cellNameStyle={cellNameStyle}
+                  authorLayoutId={selectedAuthorLayoutId && selection?.cellId === cellId ? selectedAuthorLayoutId : undefined}
+                  onOpen={(camera) => openCell(cellId, camera)}
+                />
+              ))}
+            </div>
+          </motion.div>
+        </section>
 
-      <div className="toolbar noPrint">
-        <button className={`iconButton ${replayMode === "simultaneous" ? "active" : ""}`} type="button" onClick={() => setReplayMode("simultaneous")}>
-          All
-        </button>
-        <button className={`iconButton ${replayMode === "sequential" ? "active" : ""}`} type="button" onClick={() => setReplayMode("sequential")}>
-          Seq
-        </button>
-        <button className="iconButton" type="button" onClick={replayActive ? stopReplay : startReplay} title={replayActive ? "Stop replay" : "Play replay"}>
-          {replayActive ? "Stop" : "Play"}
-        </button>
-        {showPrintTools ? (
-          <>
-            <button className="iconButton" type="button" onClick={() => window.print()} title="Print poster">
-              Print
-            </button>
-            <button className="iconButton" type="button" onClick={exportPng} title="Export PNG">
-              PNG
-            </button>
-          </>
+        <div className="toolbar noPrint">
+          <button className={`iconButton ${replayMode === "simultaneous" ? "active" : ""}`} type="button" onClick={() => setReplayMode("simultaneous")}>
+            All
+          </button>
+          <button className={`iconButton ${replayMode === "sequential" ? "active" : ""}`} type="button" onClick={() => setReplayMode("sequential")}>
+            Seq
+          </button>
+          <button className="iconButton" type="button" onClick={replayActive ? stopReplay : startReplay} title={replayActive ? "Stop replay" : "Play replay"}>
+            {replayActive ? "Stop" : "Play"}
+          </button>
+          {showPrintTools ? (
+            <>
+              <button className="iconButton" type="button" onClick={() => window.print()} title="Print poster">
+                Print
+              </button>
+              <button className="iconButton" type="button" onClick={exportPng} title="Export PNG">
+                PNG
+              </button>
+            </>
+          ) : null}
+          {message ? <p className="status">{message}</p> : null}
+        </div>
+
+        {selection ? (
+          <CellOverlay
+            selection={selection}
+            config={config}
+            sessionId={sessionId}
+            isSaving={isSaving}
+            phase={zoomPhase}
+            style={zoomPanelMotionStyle}
+            detailNameStyle={detailNameStyle}
+            authorLayoutId={selectedAuthorLayoutId}
+            onClose={closeSelection}
+            onSave={saveDrawing}
+          />
         ) : null}
-        {message ? <p className="status">{message}</p> : null}
-      </div>
-
-      {selection ? (
-        <CellOverlay
-          selection={selection}
-          config={config}
-          sessionId={sessionId}
-          isSaving={isSaving}
-          phase={zoomPhase}
-          motionValues={cameraStyle}
-          style={cameraStyle?.target}
-          onClose={closeSelection}
-          onSave={saveDrawing}
-        />
-      ) : null}
-    </main>
+      </main>
+    </LayoutGroup>
   );
 }
 
@@ -535,6 +588,7 @@ function PosterCell({
   replay,
   renderScale,
   cellNameStyle,
+  authorLayoutId,
   onOpen,
 }: {
   cellId: string;
@@ -545,6 +599,7 @@ function PosterCell({
   replay: CellReplay | null;
   renderScale: number;
   cellNameStyle: CellNameMotionStyle;
+  authorLayoutId?: string;
   onOpen: (camera: CameraFrame) => void;
 }) {
   const heldByOther = Boolean(hold && hold.sessionId !== ownSessionId);
@@ -578,7 +633,7 @@ function PosterCell({
     >
       <DrawingCanvas drawing={drawing} config={config} replay={replay} renderScale={renderScale} />
       {drawing ? (
-        <motion.span className="cellName" style={cellNameStyle}>
+        <motion.span className="cellName" layoutId={authorLayoutId} style={cellNameStyle} transition={cameraTransition}>
           {drawing.name}
         </motion.span>
       ) : null}
@@ -641,8 +696,9 @@ function CellOverlay({
   sessionId,
   isSaving,
   phase,
-  motionValues,
   style,
+  detailNameStyle,
+  authorLayoutId,
   onClose,
   onSave,
 }: {
@@ -651,8 +707,9 @@ function CellOverlay({
   sessionId: string;
   isSaving: boolean;
   phase: "enter" | "idle" | "exit";
-  motionValues?: CameraStyle;
-  style?: CSSProperties;
+  style: ZoomPanelMotionStyle;
+  detailNameStyle: CellNameMotionStyle;
+  authorLayoutId?: string;
   onClose: () => void;
   onSave: (drawing: CellDrawing) => void;
 }) {
@@ -661,12 +718,15 @@ function CellOverlay({
       <motion.div
         className={`zoomPanel ${phase === "exit" ? "closing" : "opening"}`}
         style={style}
-        initial={motionValues?.targetMotion ?? false}
-        animate={phase === "exit" ? motionValues?.targetMotion : { x: 0, y: 0, scale: 1, opacity: 1 }}
-        transition={phase === "exit" ? cameraExitTransition : cameraTransition}
       >
         {selection.kind === "view" ? (
-          <ReadOnlyCell drawing={selection.drawing} config={config} onClose={onClose} />
+          <ReadOnlyCell
+            drawing={selection.drawing}
+            config={config}
+            detailNameStyle={detailNameStyle}
+            authorLayoutId={authorLayoutId}
+            onClose={onClose}
+          />
         ) : (
           <Editor cellId={selection.cellId} hold={selection.hold} config={config} sessionId={sessionId} isSaving={isSaving} onClose={onClose} onSave={onSave} />
         )}
@@ -706,6 +766,7 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
       "--zoom-to-y": `${targetTop}px`,
       "--zoom-to-size": `${targetSize}px`,
     } as CSSProperties,
+    targetSize,
     posterMotion: {
       x: targetLeft - camera.poster.x - cellOffsetX * scale,
       y: targetTop - camera.poster.y - cellOffsetY * scale,
@@ -782,12 +843,26 @@ function getReplayByCellId(mode: ReplayMode, elapsedMs: number, drawings: CellDr
   return map;
 }
 
-function ReadOnlyCell({ drawing, config, onClose }: { drawing: CellDrawing; config: PosterConfig; onClose: () => void }) {
+function ReadOnlyCell({
+  drawing,
+  config,
+  detailNameStyle,
+  authorLayoutId,
+  onClose,
+}: {
+  drawing: CellDrawing;
+  config: PosterConfig;
+  detailNameStyle: CellNameMotionStyle;
+  authorLayoutId?: string;
+  onClose: () => void;
+}) {
   return (
     <>
       <div className="editorCanvasWrap readOnly">
         <DrawingCanvas drawing={drawing} config={config} replay={null} />
-        <span className="detailName">{drawing.name}</span>
+        <motion.span className="detailName" layoutId={authorLayoutId} style={detailNameStyle} transition={cameraTransition}>
+          {drawing.name}
+        </motion.span>
       </div>
       <div className="editorControls">
         <p className="status">Read-only saved cell.</p>
