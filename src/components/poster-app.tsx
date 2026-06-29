@@ -79,6 +79,7 @@ export function PosterApp() {
   const [isSaving, setIsSaving] = useState(false);
 
   const selectedRef = useRef<Selection | null>(null);
+  const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   selectedRef.current = selection;
 
   const config = snapshot?.config;
@@ -99,12 +100,26 @@ export function PosterApp() {
     return map;
   }, [snapshot]);
 
+  const applyOptimisticDrawings = useCallback((next: PosterSnapshot) => {
+    const optimisticDrawings = optimisticDrawingsRef.current;
+    if (optimisticDrawings.size === 0) return next;
+
+    return {
+      ...next,
+      cells: [
+        ...next.cells.filter((cell) => !optimisticDrawings.has(cell.id)),
+        ...optimisticDrawings.values(),
+      ],
+      holds: next.holds.filter((hold) => !optimisticDrawings.has(hold.cellId)),
+    };
+  }, []);
+
   const refresh = useCallback(async () => {
     const response = await fetch("/api/poster", { cache: "no-store" });
     if (!response.ok) throw new Error("Failed to load poster");
     const next = (await response.json()) as PosterSnapshot;
-    setSnapshot(next);
-  }, []);
+    setSnapshot(applyOptimisticDrawings(next));
+  }, [applyOptimisticDrawings]);
 
   useEffect(() => {
     let existing = window.localStorage.getItem("scribbles-session-id");
@@ -279,41 +294,66 @@ export function PosterApp() {
   }
 
   async function saveDrawing(drawing: CellDrawing) {
-    setIsSaving(true);
-    const response = await fetch(`/api/cells/${drawing.id}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionId, drawing }),
-    });
-    setIsSaving(false);
-
-    if (!response.ok) {
-      setMessage(response.status === 409 ? "That cell was already saved." : "Could not save. Your hold may have expired.");
-      setZoomPhase("exit");
-      window.setTimeout(() => {
-        setSelection(null);
-        setZoomPhase("idle");
-        refresh().catch(() => undefined);
-      }, cameraMs);
-      return;
-    }
-
-    const savedDrawing = (await response.json()) as CellDrawing;
-    setSnapshot((current) =>
-      current
-        ? {
-            ...current,
-            cells: [...current.cells.filter((cell) => cell.id !== savedDrawing.id), savedDrawing],
-            holds: current.holds.filter((hold) => hold.cellId !== savedDrawing.id),
-          }
-        : current,
-    );
+    optimisticDrawingsRef.current.set(drawing.id, drawing);
+    setSnapshot((current) => (current ? upsertDrawing(applyOptimisticDrawings(current), drawing) : current));
     setMessage("Saved.");
     setZoomPhase("exit");
+    setIsSaving(true);
+
     window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
     }, cameraMs);
+
+    try {
+      const response = await fetch(`/api/cells/${drawing.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId, drawing }),
+      });
+
+      if (!response.ok) {
+        optimisticDrawingsRef.current.delete(drawing.id);
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                cells: current.cells.filter((cell) => cell.id !== drawing.id),
+              }
+            : current,
+        );
+        setMessage(response.status === 409 ? "That cell was already saved." : "Could not save. Your hold may have expired.");
+        await refresh().catch(() => undefined);
+        return;
+      }
+
+      const savedDrawing = (await response.json()) as CellDrawing;
+      optimisticDrawingsRef.current.delete(drawing.id);
+      setSnapshot((current) => (current ? upsertDrawing(current, savedDrawing) : current));
+      setMessage("Saved.");
+    } catch {
+      optimisticDrawingsRef.current.delete(drawing.id);
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              cells: current.cells.filter((cell) => cell.id !== drawing.id),
+            }
+          : current,
+      );
+      setMessage("Could not save. Check your connection and try another cell.");
+      await refresh().catch(() => undefined);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function upsertDrawing(snapshot: PosterSnapshot, drawing: CellDrawing): PosterSnapshot {
+    return {
+      ...snapshot,
+      cells: [...snapshot.cells.filter((cell) => cell.id !== drawing.id), drawing],
+      holds: snapshot.holds.filter((hold) => hold.cellId !== drawing.id),
+    };
   }
 
   function startReplay() {
