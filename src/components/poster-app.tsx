@@ -4,6 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ComponentProps, CSSProperties, MouseEvent, PointerEvent } from "react";
 import { animate, motion, useMotionValue } from "motion/react";
 import { drawStrokes, getStrokeDuration } from "@/lib/drawing";
+import { getDirectionalCellId } from "@/lib/grid-navigation";
+import type { GridNavigationDirection } from "@/lib/grid-navigation";
 import { getCellIds } from "@/lib/poster-config";
 import { applyOptimisticDrawings, rollbackOptimisticDrawing, upsertDrawing } from "@/lib/poster-state";
 import type { CellDrawing, CellHold, Point, PosterConfig, PosterSnapshot, Stroke } from "@/lib/types";
@@ -90,6 +92,7 @@ export function PosterApp() {
 
   const selectedRef = useRef<Selection | null>(null);
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   selectedRef.current = selection;
   const cameraStyle = useMemo(() => (selection ? getCameraStyle(selection.camera) : undefined), [selection]);
   const posterX = useMotionValue(0);
@@ -279,6 +282,54 @@ export function PosterApp() {
     window.addEventListener("pagehide", release);
     return () => window.removeEventListener("pagehide", release);
   }, [sessionId]);
+
+  const navigateView = useCallback(
+    (direction: GridNavigationDirection) => {
+      if (!selection || selection.kind !== "view" || !config) return;
+
+      const targetId = getDirectionalCellId(selection.cellId, [...drawingsById.keys()], config, direction);
+      if (!targetId) return;
+
+      const drawing = drawingsById.get(targetId);
+      const camera = getCameraForCell(targetId, selection.camera, config, cellIds);
+      if (!drawing || !camera) return;
+
+      setMessage("");
+      setSelection({ kind: "view", cellId: targetId, drawing, camera });
+      setZoomPhase("enter");
+    },
+    [cellIds, config, drawingsById, selection],
+  );
+
+  useEffect(() => {
+    if (!selection || selection.kind !== "view") return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const direction = getDirectionFromKey(event.key);
+      if (!direction) return;
+      event.preventDefault();
+      navigateView(direction);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigateView, selection]);
+
+  function beginSwipe(event: PointerEvent<HTMLDivElement>) {
+    if (selection?.kind !== "view" || event.pointerType === "mouse") return;
+    swipeStartRef.current = { x: event.clientX, y: event.clientY };
+  }
+
+  function endSwipe(event: PointerEvent<HTMLDivElement>) {
+    if (selection?.kind !== "view" || event.pointerType === "mouse") return;
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start) return;
+
+    const direction = getDirectionFromSwipe(event.clientX - start.x, event.clientY - start.y);
+    if (direction) navigateView(direction);
+  }
 
   async function openCell(cellId: string, camera: CameraFrame) {
     if (!snapshot || !sessionId || !config) return;
@@ -548,6 +599,11 @@ export function PosterApp() {
           isSaving={isSaving}
           phase={zoomPhase}
           style={zoomPanelMotionStyle}
+          onPointerDown={beginSwipe}
+          onPointerUp={endSwipe}
+          onPointerCancel={() => {
+            swipeStartRef.current = null;
+          }}
           onClose={closeSelection}
           onSave={saveDrawing}
         />
@@ -673,6 +729,9 @@ function CellOverlay({
   isSaving,
   phase,
   style,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
   onClose,
   onSave,
 }: {
@@ -682,6 +741,9 @@ function CellOverlay({
   isSaving: boolean;
   phase: "enter" | "idle" | "exit";
   style: ZoomPanelMotionStyle;
+  onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: () => void;
   onClose: () => void;
   onSave: (drawing: CellDrawing, hold: CellHold) => void;
 }) {
@@ -689,6 +751,9 @@ function CellOverlay({
     <div className="overlay noPrint">
       <motion.div
         className={`zoomPanel ${phase === "exit" ? "closing" : "opening"}`}
+        onPointerCancel={onPointerCancel}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
         style={style}
       >
         {selection.kind === "view" ? (
@@ -708,6 +773,51 @@ function CellOverlay({
       </motion.div>
     </div>
   );
+}
+
+function getCameraForCell(cellId: string, sourceCamera: CameraFrame, config: PosterConfig, cellIds: string[]): CameraFrame | null {
+  const cellIndex = cellIds.indexOf(cellId);
+  if (cellIndex < 0) return null;
+
+  const poster = sourceCamera.poster;
+  const titleHeightPx = poster.height * (config.titleHeightIn / config.posterHeightIn);
+  const drawableHeightPx = poster.height - titleHeightPx;
+  const gridWidthPx = poster.width * (config.gridWidthIn / config.posterWidthIn);
+  const gridHeightPx = drawableHeightPx * (config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn));
+  const gridLeft = poster.x + (poster.width - gridWidthPx) / 2;
+  const gridTop = poster.y + titleHeightPx + (drawableHeightPx - gridHeightPx) / 2;
+  const cellWidth = gridWidthPx / config.columns;
+  const cellHeight = gridHeightPx / config.rows;
+  const col = cellIndex % config.columns;
+  const row = Math.floor(cellIndex / config.columns);
+
+  return {
+    cell: {
+      x: gridLeft + col * cellWidth,
+      y: gridTop + row * cellHeight,
+      width: cellWidth,
+      height: cellHeight,
+    },
+    poster,
+  };
+}
+
+function getDirectionFromKey(key: string): GridNavigationDirection | null {
+  if (key === "ArrowLeft") return "left";
+  if (key === "ArrowRight") return "right";
+  if (key === "ArrowUp") return "up";
+  if (key === "ArrowDown") return "down";
+  return null;
+}
+
+function getDirectionFromSwipe(dx: number, dy: number): GridNavigationDirection | null {
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+  const minSwipePx = 42;
+  if (Math.max(absX, absY) < minSwipePx) return null;
+
+  if (absX >= absY) return dx < 0 ? "right" : "left";
+  return dy < 0 ? "down" : "up";
 }
 
 function getCameraStyle(camera: CameraFrame): CameraStyle {
