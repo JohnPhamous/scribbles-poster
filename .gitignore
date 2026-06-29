@@ -1,6 +1,10 @@
 .DS_Store
 .git.nosync
 .metadata_never_index
+.next.nosync
+.vercel
+.vercel.nosync
+node_modules.nosync
 .env
 .env*.local
 .next
@@ -8,3 +12,4 @@ node_modules
 out
 *.tsbuildinfo
 vercel.json
+.vercel

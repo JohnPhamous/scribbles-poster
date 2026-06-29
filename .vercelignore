@@ -1,0 +1,10 @@
+.git
+.git.nosync
+.next
+.next.nosync
+.vercel
+.vercel.nosync
+node_modules
+node_modules.nosync
+tsconfig.tsbuildinfo
+.metadata_never_index

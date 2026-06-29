@@ -39,6 +39,12 @@ type CameraStyle = {
   };
 };
 
+type ReplayMode = "simultaneous" | "sequential";
+type CellReplay = {
+  elapsedMs: number;
+  durationMs?: number;
+};
+
 const cellIds = getCellIds();
 const cameraMs = 620;
 const cameraTransition = {
@@ -59,6 +65,7 @@ export function PosterApp() {
   const [showPrintTools, setShowPrintTools] = useState(false);
   const [replayStartedAt, setReplayStartedAt] = useState<number | null>(null);
   const [replayElapsed, setReplayElapsed] = useState(0);
+  const [replayMode, setReplayMode] = useState<ReplayMode>("simultaneous");
   const [isSaving, setIsSaving] = useState(false);
 
   const selectedRef = useRef<Selection | null>(null);
@@ -70,6 +77,8 @@ export function PosterApp() {
     for (const cell of snapshot?.cells ?? []) map.set(cell.id, cell);
     return map;
   }, [snapshot]);
+
+  const orderedDrawings = useMemo(() => getOrderedDrawings(snapshot?.cells ?? []), [snapshot]);
 
   const holdsById = useMemo(() => {
     const map = new Map<string, CellHold>();
@@ -140,13 +149,14 @@ export function PosterApp() {
     let frame = 0;
     const tick = () => {
       const elapsed = performance.now() - replayStartedAt;
-      setReplayElapsed(Math.min(elapsed, config.maxReplayMs));
-      if (elapsed < config.maxReplayMs) frame = requestAnimationFrame(tick);
+      const duration = getReplayDuration(replayMode, orderedDrawings.length, config);
+      setReplayElapsed(Math.min(elapsed, duration));
+      if (elapsed < duration) frame = requestAnimationFrame(tick);
       else setReplayStartedAt(null);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [config, replayStartedAt]);
+  }, [config, orderedDrawings.length, replayMode, replayStartedAt]);
 
   useEffect(() => {
     const release = () => {
@@ -273,14 +283,15 @@ export function PosterApp() {
     ctx.fillText(config.title, canvas.width / 2, (config.titleHeightIn * scale) / 2);
 
     const cellPx = config.cellSizeIn * scale;
-    const yStart = config.titleHeightIn * scale;
+    const xStart = config.gridOffsetXIn * scale;
+    const yStart = (config.titleHeightIn + config.gridOffsetYIn) * scale;
     ctx.strokeStyle = "#000";
     ctx.lineWidth = Math.max(1, Math.round(scale / 96));
     for (const id of cellIds) {
       const index = cellIds.indexOf(id);
       const col = index % config.columns;
       const row = Math.floor(index / config.columns);
-      const x = col * cellPx;
+      const x = xStart + col * cellPx;
       const y = yStart + row * cellPx;
       ctx.strokeRect(x, y, cellPx, cellPx);
       const drawing = drawingsById.get(id);
@@ -309,6 +320,7 @@ export function PosterApp() {
 
   const replayActive = replayStartedAt !== null || replayElapsed > 0;
   const cameraStyle = selection ? getCameraStyle(selection.camera) : undefined;
+  const replayByCellId = replayActive && config ? getReplayByCellId(replayMode, replayElapsed, orderedDrawings, config) : new Map<string, CellReplay>();
 
   return (
     <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
@@ -322,6 +334,8 @@ export function PosterApp() {
               "--title-height": config.titleHeightIn,
               "--columns": config.columns,
               "--rows": config.rows,
+              "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
+              "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
               ...cameraStyle?.poster,
             } as CSSProperties
           }
@@ -343,7 +357,7 @@ export function PosterApp() {
                 drawing={drawingsById.get(cellId)}
                 hold={holdsById.get(cellId)}
                 ownSessionId={sessionId}
-                replayElapsed={replayActive ? replayElapsed : null}
+                replay={replayByCellId.get(cellId) ?? null}
                 onOpen={(camera) => openCell(cellId, camera)}
               />
             ))}
@@ -352,6 +366,12 @@ export function PosterApp() {
       </section>
 
       <div className="toolbar noPrint">
+        <button className={`iconButton ${replayMode === "simultaneous" ? "active" : ""}`} type="button" onClick={() => setReplayMode("simultaneous")}>
+          All
+        </button>
+        <button className={`iconButton ${replayMode === "sequential" ? "active" : ""}`} type="button" onClick={() => setReplayMode("sequential")}>
+          Seq
+        </button>
         <button className="iconButton" type="button" onClick={replayActive ? stopReplay : startReplay} title={replayActive ? "Stop replay" : "Play replay"}>
           {replayActive ? "Stop" : "Play"}
         </button>
@@ -391,7 +411,7 @@ function PosterCell({
   drawing,
   hold,
   ownSessionId,
-  replayElapsed,
+  replay,
   onOpen,
 }: {
   cellId: string;
@@ -399,7 +419,7 @@ function PosterCell({
   drawing?: CellDrawing;
   hold?: CellHold;
   ownSessionId: string;
-  replayElapsed: number | null;
+  replay: CellReplay | null;
   onOpen: (camera: CameraFrame) => void;
 }) {
   const heldByOther = Boolean(hold && hold.sessionId !== ownSessionId);
@@ -431,7 +451,7 @@ function PosterCell({
       onClick={handleClick}
       aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : heldByOther ? " held" : " empty"}`}
     >
-      <DrawingCanvas drawing={drawing} config={config} replayElapsed={replayElapsed} />
+      <DrawingCanvas drawing={drawing} config={config} replay={replay} />
       {drawing ? <span className="cellName">{drawing.name}</span> : null}
       {heldByOther ? <span className="cellHeld">Held</span> : null}
     </button>
@@ -441,11 +461,11 @@ function PosterCell({
 function DrawingCanvas({
   drawing,
   config,
-  replayElapsed,
+  replay,
 }: {
   drawing?: CellDrawing;
   config: PosterConfig;
-  replayElapsed: number | null;
+  replay: CellReplay | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -463,23 +483,22 @@ function DrawingCanvas({
       ctx.fillRect(0, 0, config.canvasSize, config.canvasSize);
       if (!drawing) return;
 
-      if (replayElapsed === null) {
+      if (replay === null) {
         drawStrokes(ctx, drawing.strokes, config.canvasSize);
         return;
       }
 
+      if (replay.elapsedMs <= 0) return;
       const sourceDuration = getStrokeDuration(drawing.strokes);
-      const untilMs =
-        sourceDuration > config.maxReplayMs
-          ? Math.min(sourceDuration, (replayElapsed / config.maxReplayMs) * sourceDuration)
-          : Math.min(sourceDuration, replayElapsed);
+      const replayDuration = replay.durationMs ?? Math.min(sourceDuration, config.maxReplayMs);
+      const untilMs = replayDuration <= 0 ? sourceDuration : Math.min(sourceDuration, (replay.elapsedMs / replayDuration) * sourceDuration);
       drawStrokes(ctx, drawing.strokes, config.canvasSize, { untilMs });
     };
 
     render();
     const timer = window.setTimeout(render, cameraMs + 40);
     return () => window.clearTimeout(timer);
-  }, [config, drawing, replayElapsed]);
+  }, [config, drawing, replay]);
 
   return <canvas ref={canvasRef} className="drawingCanvas" />;
 }
@@ -569,11 +588,52 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
   };
 }
 
+function getOrderedDrawings(drawings: CellDrawing[]) {
+  return [...drawings].sort((a, b) => {
+    const byOrder = getDrawOrder(a) - getDrawOrder(b);
+    if (byOrder !== 0) return byOrder;
+    const byCreatedAt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    if (byCreatedAt !== 0) return byCreatedAt;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function getDrawOrder(drawing: CellDrawing) {
+  return Number.isFinite(drawing.drawOrder) && drawing.drawOrder > 0 ? drawing.drawOrder : Number.MAX_SAFE_INTEGER;
+}
+
+function getReplayDuration(mode: ReplayMode, drawingCount: number, config: PosterConfig) {
+  if (mode === "simultaneous") return config.maxReplayMs;
+  return Math.max(config.sequentialReplayCellMs, drawingCount * config.sequentialReplayCellMs);
+}
+
+function getReplayByCellId(mode: ReplayMode, elapsedMs: number, drawings: CellDrawing[], config: PosterConfig) {
+  const map = new Map<string, CellReplay>();
+
+  if (mode === "simultaneous") {
+    for (const drawing of drawings) {
+      map.set(drawing.id, { elapsedMs });
+    }
+    return map;
+  }
+
+  drawings.forEach((drawing, index) => {
+    const startMs = index * config.sequentialReplayCellMs;
+    const localElapsedMs = Math.max(0, Math.min(config.sequentialReplayCellMs, elapsedMs - startMs));
+    map.set(drawing.id, {
+      elapsedMs: localElapsedMs,
+      durationMs: config.sequentialReplayCellMs,
+    });
+  });
+
+  return map;
+}
+
 function ReadOnlyCell({ drawing, config, onClose }: { drawing: CellDrawing; config: PosterConfig; onClose: () => void }) {
   return (
     <>
       <div className="editorCanvasWrap readOnly">
-        <DrawingCanvas drawing={drawing} config={config} replayElapsed={null} />
+        <DrawingCanvas drawing={drawing} config={config} replay={null} />
         <span className="detailName">{drawing.name}</span>
       </div>
       <div className="editorControls">
@@ -707,6 +767,7 @@ function Editor({
     const now = new Date().toISOString();
     onSave({
       id: cellId,
+      drawOrder: 0,
       name: name.trim() || "Anonymous",
       strokes: strokesRef.current,
       createdAt: now,

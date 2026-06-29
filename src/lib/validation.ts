@@ -50,6 +50,7 @@ export function validateDrawing(value: unknown, id: string): CellDrawing | null 
   const now = new Date().toISOString();
   return {
     id,
+    drawOrder: 0,
     name: candidate.name.trim() || "Anonymous",
     strokes,
     createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : now,

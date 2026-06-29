@@ -32,15 +32,19 @@ export async function getCell(id: string): Promise<CellDrawing | null> {
 export async function saveCell(drawing: CellDrawing): Promise<"saved" | "occupied"> {
   const existing = await getCell(drawing.id);
   if (existing) return "occupied";
+  const nextDrawing = {
+    ...drawing,
+    drawOrder: await getNextDrawOrder(),
+  };
 
   if (!hasBlobToken) {
-    memoryCells.set(drawing.id, drawing);
+    memoryCells.set(drawing.id, nextDrawing);
     memoryHolds.delete(drawing.id);
     return "saved";
   }
 
   try {
-    await put(`${cellPrefix}${drawing.id}.json`, JSON.stringify(drawing), {
+    await put(`${cellPrefix}${drawing.id}.json`, JSON.stringify(nextDrawing), {
       access: "public",
       contentType: "application/json",
       allowOverwrite: false,
@@ -146,4 +150,9 @@ async function readJson<T>(url: string): Promise<T | null> {
 
 function isPresent<T>(value: T | null): value is T {
   return value !== null;
+}
+
+async function getNextDrawOrder() {
+  const cells = await listCells();
+  return cells.reduce((max, cell) => Math.max(max, cell.drawOrder ?? 0), 0) + 1;
 }

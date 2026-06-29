@@ -28,7 +28,8 @@ The app stores:
 
 Poster settings live in `src/lib/poster-config.ts`.
 
-The default is 24in x 36in portrait, 4in title, 4in cells, yielding a 6 x 8 grid.
+The default is 24in x 36in portrait, 4in title, and a 2in target cell size, yielding a 12 x 16 grid.
+If the poster dimensions do not divide evenly, the app computes the best integer grid that keeps cells at least the target size, then centers the fitted square grid.
 
 ## Admin Print
 

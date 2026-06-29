@@ -13,6 +13,7 @@ export type Stroke = {
 
 export type CellDrawing = {
   id: string;
+  drawOrder: number;
   name: string;
   strokes: Stroke[];
   createdAt: string;
@@ -38,12 +39,18 @@ export type PosterConfig = {
   posterWidthIn: number;
   posterHeightIn: number;
   titleHeightIn: number;
+  targetCellSizeIn: number;
   cellSizeIn: number;
+  gridWidthIn: number;
+  gridHeightIn: number;
+  gridOffsetXIn: number;
+  gridOffsetYIn: number;
   columns: number;
   rows: number;
   canvasSize: number;
   strokeWidth: number;
   maxReplayMs: number;
+  sequentialReplayCellMs: number;
   holdMs: number;
   exportDpi: number;
   palette: string[];

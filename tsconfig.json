@@ -37,6 +37,11 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "node_modules.nosync",
+    ".next",
+    ".next.nosync",
+    ".vercel",
+    ".vercel.nosync"
   ]
 }
