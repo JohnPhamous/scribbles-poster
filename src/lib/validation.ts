@@ -39,8 +39,13 @@ export function validateDrawing(value: unknown, id: string): CellDrawing | null 
     });
 
     if (points.some((point) => point === null)) return null;
+    const order = Number.isFinite(item.order) && Number(item.order) >= 0 ? Number(item.order) : strokes.length;
+    const startedAt = Number.isFinite(item.startedAt) && Number(item.startedAt) >= 0 ? Number(item.startedAt) : 0;
+
     strokes.push({
       id: item.id,
+      order,
+      startedAt,
       color: String(item.color),
       width: item.width,
       points: points as Stroke["points"],

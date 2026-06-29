@@ -56,6 +56,16 @@ const cameraExitTransition = {
   ease: [0.42, 0, 0.28, 1],
 } as const;
 
+function createOptimisticHold(cellId: string, sessionId: string, holdMs: number): CellHold {
+  const now = new Date();
+  return {
+    cellId,
+    sessionId,
+    startedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + holdMs).toISOString(),
+  };
+}
+
 export function PosterApp() {
   const [snapshot, setSnapshot] = useState<PosterSnapshot | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -172,7 +182,7 @@ export function PosterApp() {
   }, [sessionId]);
 
   async function openCell(cellId: string, camera: CameraFrame) {
-    if (!snapshot || !sessionId) return;
+    if (!snapshot || !sessionId || !config) return;
     setMessage("");
 
     const drawing = drawingsById.get(cellId);
@@ -188,6 +198,18 @@ export function PosterApp() {
       return;
     }
 
+    const optimisticHold = createOptimisticHold(cellId, sessionId, config.holdMs);
+    setSelection({ kind: "edit", cellId, hold: optimisticHold, camera });
+    setZoomPhase("enter");
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            holds: [...current.holds.filter((item) => item.cellId !== cellId), optimisticHold],
+          }
+        : current,
+    );
+
     const response = await fetch(`/api/cells/${cellId}/hold`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -197,13 +219,35 @@ export function PosterApp() {
 
     if (!response.ok || !result.ok || !result.hold) {
       setMessage(result.reason === "held" ? "That cell was just claimed." : "Could not claim that cell.");
+      setZoomPhase("exit");
+      window.setTimeout(() => {
+        setSelection(null);
+        setZoomPhase("idle");
+      }, cameraMs);
       await refresh().catch(() => undefined);
       return;
     }
 
-    setSelection({ kind: "edit", cellId, hold: result.hold, camera });
-    setZoomPhase("enter");
-    await refresh().catch(() => undefined);
+    const confirmedHold = result.hold;
+    const currentSelection = selectedRef.current;
+    if (currentSelection?.kind !== "edit" || currentSelection.cellId !== cellId) {
+      fetch(`/api/cells/${cellId}/hold`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "release", sessionId }),
+      }).catch(() => undefined);
+      return;
+    }
+
+    setSelection((current) => (current?.kind === "edit" && current.cellId === cellId ? { ...current, hold: confirmedHold } : current));
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            holds: [...current.holds.filter((item) => item.cellId !== cellId), confirmedHold],
+          }
+        : current,
+    );
   }
 
   async function closeSelection() {
@@ -212,6 +256,15 @@ export function PosterApp() {
     setZoomPhase("exit");
 
     if (selection?.kind === "edit") {
+      const releasedCellId = selection.cellId;
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              holds: current.holds.filter((item) => item.cellId !== releasedCellId),
+            }
+          : current,
+      );
       fetch(`/api/cells/${selection.cellId}/hold`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -222,7 +275,6 @@ export function PosterApp() {
     window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
-      refresh().catch(() => undefined);
     }, cameraMs);
   }
 
@@ -246,12 +298,21 @@ export function PosterApp() {
       return;
     }
 
+    const savedDrawing = (await response.json()) as CellDrawing;
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            cells: [...current.cells.filter((cell) => cell.id !== savedDrawing.id), savedDrawing],
+            holds: current.holds.filter((hold) => hold.cellId !== savedDrawing.id),
+          }
+        : current,
+    );
     setMessage("Saved.");
     setZoomPhase("exit");
     window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
-      refresh().catch(() => undefined);
     }, cameraMs);
   }
 
@@ -666,6 +727,7 @@ function Editor({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const currentStrokeRef = useRef<Stroke | null>(null);
+  const drawingStartedAtRef = useRef(performance.now());
   const strokeStartedAtRef = useRef(0);
   const [strokesVersion, setStrokesVersion] = useState(0);
   const [color, setColor] = useState(config.palette[0]);
@@ -725,6 +787,8 @@ function Editor({
     strokeStartedAtRef.current = performance.now();
     currentStrokeRef.current = {
       id: crypto.randomUUID(),
+      order: strokesRef.current.length,
+      startedAt: Math.max(0, strokeStartedAtRef.current - drawingStartedAtRef.current),
       color,
       width: config.strokeWidth,
       points: [getPoint(event)],

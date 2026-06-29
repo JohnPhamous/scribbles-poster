@@ -6,6 +6,8 @@ export type Point = {
 
 export type Stroke = {
   id: string;
+  order: number;
+  startedAt: number;
   color: string;
   width: number;
   points: Point[];
