@@ -37,7 +37,8 @@ export async function listCells(): Promise<CellDrawing[]> {
 
 export async function getCell(id: string): Promise<CellDrawing | null> {
   if (!hasBlobToken) return memoryCells.get(id) ?? null;
-  return readListedBlobByPath<CellDrawing>(`${cellPrefix}${id}.json`);
+  const cells = await listCells();
+  return cells.find((cell) => cell.id === id) ?? null;
 }
 
 export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occupied"> {
@@ -228,7 +229,8 @@ async function listHolds() {
 }
 
 async function readListedBlobByPath<T>(path: string): Promise<T | null> {
-  const blobs = await list({ prefix: path, limit: 1 });
+  const prefix = path.slice(0, path.lastIndexOf("/") + 1);
+  const blobs = await list({ prefix, limit: 1000 });
   const blob = blobs.blobs.find((item) => item.pathname === path);
   if (!blob) return null;
   return readJson<T>(blob.pathname);
