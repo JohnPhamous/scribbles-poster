@@ -280,7 +280,7 @@ button {
 }
 
 .drawGuideFrame.opening {
-  animation: guideIn 160ms ease 620ms forwards;
+  animation: guideIn 420ms ease 80ms forwards;
 }
 
 .drawGuideFrame.closing {
