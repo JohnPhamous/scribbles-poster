@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "vitest run src/lib"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.4.0",
@@ -22,6 +23,10 @@
     "@types/node": "^24.0.4",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "postcss": "^8.5.16"
   }
 }

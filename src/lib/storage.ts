@@ -24,12 +24,12 @@ type BlobLock = {
   expiresAt: string;
 };
 
-export async function listCells(): Promise<CellDrawing[]> {
+export async function listCells(options?: { bypassCache?: boolean }): Promise<CellDrawing[]> {
   if (!hasBlobToken) {
     return Array.from(memoryCells.values());
   }
 
-  if (cellsCache && cellsCache.expiresAt > Date.now()) {
+  if (!options?.bypassCache && cellsCache && cellsCache.expiresAt > Date.now()) {
     return cellsCache.value;
   }
 
@@ -223,8 +223,20 @@ export async function acquireHold(cellId: string, sessionId: string, name?: stri
   }
 
   await deleteHold(cellId);
-  await putHold(hold, false);
-  return { ok: true as const, hold };
+  try {
+    await putHold(hold, false);
+    return { ok: true as const, hold };
+  } catch (error) {
+    if (!isBlobConflictError(error)) throw error;
+  }
+
+  const nextExisting = await getHold(cellId);
+  const nextActive = nextExisting && new Date(nextExisting.expiresAt).getTime() > Date.now();
+  if (nextActive) {
+    return nextExisting.sessionId === sessionId ? { ok: true as const, hold: nextExisting } : { ok: false as const, reason: "held" as const, hold: nextExisting };
+  }
+
+  return { ok: false as const, reason: "held" as const };
 }
 
 export async function upsertHold(cellId: string, sessionId: string, name?: string) {
@@ -270,6 +282,8 @@ export async function deleteHold(cellId: string, sessionId?: string) {
 
   try {
     if (sessionId) {
+      const hold = await getSessionHold(cellId, sessionId);
+      if (!hold) return;
       await del(getHoldPath(cellId));
       invalidateHoldsCache();
       return;
@@ -351,6 +365,6 @@ function invalidateHoldsCache() {
 }
 
 async function getNextDrawOrder() {
-  const cells = await listCells();
+  const cells = await listCells({ bypassCache: true });
   return cells.reduce((max, cell) => Math.max(max, cell.drawOrder ?? 0), 0) + 1;
 }

@@ -6,7 +6,6 @@ export function drawStrokes(
   size: number,
   options?: { untilMs?: number; maxSourceMs?: number },
 ) {
-  ctx.clearRect(0, 0, size, size);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
