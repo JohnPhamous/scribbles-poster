@@ -197,7 +197,6 @@ button {
 }
 
 .zoomActive .poster {
-  animation: posterCameraZoom 620ms cubic-bezier(0.16, 1, 0.2, 1) both;
   box-shadow: none;
   height: var(--camera-poster-height);
   left: var(--camera-poster-x);
@@ -216,7 +215,6 @@ button {
 }
 
 .zoomPanel {
-  animation: editorSurfaceIn 140ms ease 520ms both;
   display: grid;
   gap: 14px;
   left: var(--zoom-to-x);
@@ -224,6 +222,8 @@ button {
   position: fixed;
   top: var(--zoom-to-y);
   width: var(--zoom-to-size);
+  transform-origin: 0 0;
+  will-change: transform, opacity;
 }
 
 .editorCanvasWrap {
@@ -248,10 +248,16 @@ button {
 
 .editorControls {
   align-items: center;
+  animation: controlsIn 140ms ease 500ms both;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
+}
+
+.zoomPanel.closing .editorControls {
+  animation: controlsOut 90ms ease both;
+  pointer-events: none;
 }
 
 .editorControls input {
@@ -296,19 +302,17 @@ button {
   width: 1px;
 }
 
-@keyframes posterCameraZoom {
+@keyframes controlsIn {
   from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-
-  to {
-    transform: translate3d(var(--camera-dx), var(--camera-dy), 0) scale(var(--camera-scale));
+    opacity: 0;
+    transform: translateY(-4px);
   }
 }
 
-@keyframes editorSurfaceIn {
-  from {
+@keyframes controlsOut {
+  to {
     opacity: 0;
+    transform: translateY(-4px);
   }
 }
 

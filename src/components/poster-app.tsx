@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, PointerEvent } from "react";
+import { motion } from "motion/react";
 import { drawStrokes, getStrokeDuration } from "@/lib/drawing";
 import { getCellIds } from "@/lib/poster-config";
 import type { CellDrawing, CellHold, Point, PosterConfig, PosterSnapshot, Stroke } from "@/lib/types";
@@ -22,11 +23,37 @@ type CameraFrame = {
   poster: ZoomRect;
 };
 
+type CameraStyle = {
+  poster: CSSProperties;
+  target: CSSProperties;
+  posterMotion: {
+    x: number;
+    y: number;
+    scale: number;
+  };
+  targetMotion: {
+    x: number;
+    y: number;
+    scale: number;
+    opacity: number;
+  };
+};
+
 const cellIds = getCellIds();
+const cameraMs = 620;
+const cameraTransition = {
+  duration: cameraMs / 1000,
+  ease: [0.16, 1, 0.2, 1],
+} as const;
+const cameraExitTransition = {
+  duration: cameraMs / 1000,
+  ease: [0.42, 0, 0.28, 1],
+} as const;
 
 export function PosterApp() {
   const [snapshot, setSnapshot] = useState<PosterSnapshot | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [zoomPhase, setZoomPhase] = useState<"enter" | "idle" | "exit">("idle");
   const [sessionId, setSessionId] = useState("");
   const [message, setMessage] = useState("");
   const [showPrintTools, setShowPrintTools] = useState(false);
@@ -89,6 +116,14 @@ export function PosterApp() {
   }, [selection, refresh]);
 
   useEffect(() => {
+    if (!selection || zoomPhase !== "enter") return;
+    const timer = window.setTimeout(() => {
+      setZoomPhase("idle");
+    }, cameraMs);
+    return () => window.clearTimeout(timer);
+  }, [selection, zoomPhase]);
+
+  useEffect(() => {
     if (!selection || selection.kind !== "edit") return;
     const timer = window.setInterval(() => {
       fetch(`/api/cells/${selection.cellId}/hold`, {
@@ -133,6 +168,7 @@ export function PosterApp() {
     const drawing = drawingsById.get(cellId);
     if (drawing) {
       setSelection({ kind: "view", cellId, drawing, camera });
+      setZoomPhase("enter");
       return;
     }
 
@@ -156,19 +192,28 @@ export function PosterApp() {
     }
 
     setSelection({ kind: "edit", cellId, hold: result.hold, camera });
+    setZoomPhase("enter");
     await refresh().catch(() => undefined);
   }
 
   async function closeSelection() {
+    if (!selection) return;
+
+    setZoomPhase("exit");
+
     if (selection?.kind === "edit") {
-      await fetch(`/api/cells/${selection.cellId}/hold`, {
+      fetch(`/api/cells/${selection.cellId}/hold`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "release", sessionId }),
       }).catch(() => undefined);
     }
-    setSelection(null);
-    await refresh().catch(() => undefined);
+
+    window.setTimeout(() => {
+      setSelection(null);
+      setZoomPhase("idle");
+      refresh().catch(() => undefined);
+    }, cameraMs);
   }
 
   async function saveDrawing(drawing: CellDrawing) {
@@ -182,14 +227,22 @@ export function PosterApp() {
 
     if (!response.ok) {
       setMessage(response.status === 409 ? "That cell was already saved." : "Could not save. Your hold may have expired.");
-      setSelection(null);
-      await refresh().catch(() => undefined);
+      setZoomPhase("exit");
+      window.setTimeout(() => {
+        setSelection(null);
+        setZoomPhase("idle");
+        refresh().catch(() => undefined);
+      }, cameraMs);
       return;
     }
 
-    setSelection(null);
     setMessage("Saved.");
-    await refresh().catch(() => undefined);
+    setZoomPhase("exit");
+    window.setTimeout(() => {
+      setSelection(null);
+      setZoomPhase("idle");
+      refresh().catch(() => undefined);
+    }, cameraMs);
   }
 
   function startReplay() {
@@ -258,9 +311,9 @@ export function PosterApp() {
   const cameraStyle = selection ? getCameraStyle(selection.camera) : undefined;
 
   return (
-    <main className={`app ${selection ? "zoomActive" : ""}`}>
+    <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
       <section className="stage" aria-label="Collaborative poster">
-        <div
+        <motion.div
           className="poster"
           style={
             {
@@ -272,6 +325,13 @@ export function PosterApp() {
               ...cameraStyle?.poster,
             } as CSSProperties
           }
+          initial={false}
+          animate={
+            selection && cameraStyle && zoomPhase !== "exit"
+              ? cameraStyle.posterMotion
+              : { x: 0, y: 0, scale: 1 }
+          }
+          transition={zoomPhase === "exit" ? cameraExitTransition : cameraTransition}
         >
           <header className="posterTitle">{config.title}</header>
           <div className="posterGrid">
@@ -288,7 +348,7 @@ export function PosterApp() {
               />
             ))}
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <div className="toolbar noPrint">
@@ -314,6 +374,8 @@ export function PosterApp() {
           config={config}
           sessionId={sessionId}
           isSaving={isSaving}
+          phase={zoomPhase}
+          motionValues={cameraStyle}
           style={cameraStyle?.target}
           onClose={closeSelection}
           onSave={saveDrawing}
@@ -390,28 +452,33 @@ function DrawingCanvas({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(rect.width * dpr));
-    canvas.height = Math.max(1, Math.round(rect.height * dpr));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(canvas.width / config.canvasSize, 0, 0, canvas.height / config.canvasSize, 0, 0);
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, config.canvasSize, config.canvasSize);
-    if (!drawing) return;
+    const render = () => {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
+      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(canvas.width / config.canvasSize, 0, 0, canvas.height / config.canvasSize, 0, 0);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, config.canvasSize, config.canvasSize);
+      if (!drawing) return;
 
-    if (replayElapsed === null) {
-      drawStrokes(ctx, drawing.strokes, config.canvasSize);
-      return;
-    }
+      if (replayElapsed === null) {
+        drawStrokes(ctx, drawing.strokes, config.canvasSize);
+        return;
+      }
 
-    const sourceDuration = getStrokeDuration(drawing.strokes);
-    const untilMs =
-      sourceDuration > config.maxReplayMs
-        ? Math.min(sourceDuration, (replayElapsed / config.maxReplayMs) * sourceDuration)
-        : Math.min(sourceDuration, replayElapsed);
-    drawStrokes(ctx, drawing.strokes, config.canvasSize, { untilMs });
+      const sourceDuration = getStrokeDuration(drawing.strokes);
+      const untilMs =
+        sourceDuration > config.maxReplayMs
+          ? Math.min(sourceDuration, (replayElapsed / config.maxReplayMs) * sourceDuration)
+          : Math.min(sourceDuration, replayElapsed);
+      drawStrokes(ctx, drawing.strokes, config.canvasSize, { untilMs });
+    };
+
+    render();
+    const timer = window.setTimeout(render, cameraMs + 40);
+    return () => window.clearTimeout(timer);
   }, [config, drawing, replayElapsed]);
 
   return <canvas ref={canvasRef} className="drawingCanvas" />;
@@ -422,6 +489,8 @@ function CellOverlay({
   config,
   sessionId,
   isSaving,
+  phase,
+  motionValues,
   style,
   onClose,
   onSave,
@@ -430,24 +499,32 @@ function CellOverlay({
   config: PosterConfig;
   sessionId: string;
   isSaving: boolean;
+  phase: "enter" | "idle" | "exit";
+  motionValues?: CameraStyle;
   style?: CSSProperties;
   onClose: () => void;
   onSave: (drawing: CellDrawing) => void;
 }) {
   return (
     <div className="overlay noPrint">
-      <div className="zoomPanel" style={style}>
+      <motion.div
+        className={`zoomPanel ${phase === "exit" ? "closing" : "opening"}`}
+        style={style}
+        initial={motionValues?.targetMotion ?? false}
+        animate={phase === "exit" ? motionValues?.targetMotion : { x: 0, y: 0, scale: 1, opacity: 1 }}
+        transition={phase === "exit" ? cameraExitTransition : cameraTransition}
+      >
         {selection.kind === "view" ? (
           <ReadOnlyCell drawing={selection.drawing} config={config} onClose={onClose} />
         ) : (
           <Editor cellId={selection.cellId} hold={selection.hold} config={config} sessionId={sessionId} isSaving={isSaving} onClose={onClose} onSave={onSave} />
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
 
-function getCameraStyle(camera: CameraFrame): { poster: CSSProperties; target: CSSProperties } {
+function getCameraStyle(camera: CameraFrame): CameraStyle {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const targetSize = Math.min(viewportWidth * 0.92, viewportHeight * 0.78);
@@ -468,10 +545,27 @@ function getCameraStyle(camera: CameraFrame): { poster: CSSProperties; target: C
       "--camera-scale": scale,
     } as CSSProperties,
     target: {
+      "--zoom-from-x": `${camera.cell.x}px`,
+      "--zoom-from-y": `${camera.cell.y}px`,
+      "--zoom-from-size": `${Math.max(camera.cell.width, camera.cell.height)}px`,
+      "--zoom-dx": `${camera.cell.x - targetLeft}px`,
+      "--zoom-dy": `${camera.cell.y - targetTop}px`,
+      "--zoom-scale": Math.max(camera.cell.width, camera.cell.height) / targetSize,
       "--zoom-to-x": `${targetLeft}px`,
       "--zoom-to-y": `${targetTop}px`,
       "--zoom-to-size": `${targetSize}px`,
     } as CSSProperties,
+    posterMotion: {
+      x: targetLeft - camera.poster.x - cellOffsetX * scale,
+      y: targetTop - camera.poster.y - cellOffsetY * scale,
+      scale,
+    },
+    targetMotion: {
+      x: camera.cell.x - targetLeft,
+      y: camera.cell.y - targetTop,
+      scale: Math.max(camera.cell.width, camera.cell.height) / targetSize,
+      opacity: 1,
+    },
   };
 }
 
@@ -533,15 +627,18 @@ function Editor({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const resize = () => {
-      const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(rect.width * dpr));
-      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
+      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
       redraw();
     };
     resize();
+    const timer = window.setTimeout(resize, cameraMs + 40);
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", resize);
+    };
   }, [redraw]);
 
   useEffect(() => {
