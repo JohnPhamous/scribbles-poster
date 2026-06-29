@@ -349,8 +349,10 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     setReplayElapsed(0);
   }
 
-  function exportPng() {
+  async function exportPng() {
     if (!config) return;
+    await document.fonts.ready.catch(() => undefined);
+
     const scale = config.exportDpi;
     const canvas = document.createElement("canvas");
     canvas.width = config.posterWidthIn * scale;
@@ -363,7 +365,8 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = `700 ${Math.round(0.45 * scale)}px Arial, sans-serif`;
+    const titleFontFamily = getComputedStyle(document.querySelector(".posterTitle") ?? document.body).fontFamily;
+    ctx.font = `400 ${Math.round(0.45 * scale)}px ${titleFontFamily}`;
     ctx.fillText(config.title, canvas.width * 0.05, (config.titleHeightIn * scale) / 2);
 
     const cellPx = config.cellSizeIn * scale;

@@ -55,15 +55,18 @@ button {
 }
 
 .posterTitle {
-  align-items: center;
+  align-items: end;
   display: flex;
+  font-family: var(--font-title), Arial, Helvetica, sans-serif;
   font-size: clamp(11px, 2vw, 29px);
-  font-weight: 800;
+  font-synthesis: none;
+  font-weight: 400;
   justify-content: flex-start;
   letter-spacing: 0;
   line-height: 1;
   overflow: hidden;
   padding: 0 5%;
+  padding-bottom: 8px;
   text-align: left;
   white-space: nowrap;
 }
