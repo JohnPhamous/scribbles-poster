@@ -106,6 +106,15 @@ export function PosterApp() {
     const optimisticDrawings = optimisticDrawingsRef.current;
     if (optimisticDrawings.size === 0) return next;
 
+    const confirmedCellIds = new Set(next.cells.map((cell) => cell.id));
+    for (const optimisticCellId of optimisticDrawings.keys()) {
+      if (confirmedCellIds.has(optimisticCellId)) {
+        optimisticDrawings.delete(optimisticCellId);
+      }
+    }
+
+    if (optimisticDrawings.size === 0) return next;
+
     return {
       ...next,
       cells: [
@@ -330,7 +339,7 @@ export function PosterApp() {
       }
 
       const savedDrawing = (await response.json()) as CellDrawing;
-      optimisticDrawingsRef.current.delete(drawing.id);
+      optimisticDrawingsRef.current.set(savedDrawing.id, savedDrawing);
       setSnapshot((current) => (current ? upsertDrawing(current, savedDrawing) : current));
       setMessage("Saved.");
     } catch {
