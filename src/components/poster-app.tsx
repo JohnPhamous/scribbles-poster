@@ -47,6 +47,7 @@ type CellReplay = {
   elapsedMs: number;
   durationMs?: number;
 };
+type ZoomPhase = "enter" | "idle" | "exit" | "pan";
 type PosterMotionStyle = ComponentProps<typeof motion.div>["style"];
 type ZoomPanelMotionStyle = ComponentProps<typeof motion.div>["style"];
 
@@ -70,7 +71,7 @@ const hiddenRefreshMs = 5_000;
 export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot }) {
   const [snapshot, setSnapshot] = useState<PosterSnapshot | null>(() => initialSnapshot);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [zoomPhase, setZoomPhase] = useState<"enter" | "idle" | "exit">("idle");
+  const [zoomPhase, setZoomPhase] = useState<ZoomPhase>("idle");
   const [message, setMessage] = useState("");
   const [showPrintTools, setShowPrintTools] = useState(false);
   const [replayStartedAt, setReplayStartedAt] = useState<number | null>(null);
@@ -191,13 +192,23 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       panelScale.set(cameraStyle.targetMotion.scale);
     }
 
+    if (zoomPhase === "pan") {
+      panelX.set(0);
+      panelY.set(0);
+      panelScale.set(1);
+    }
+
     const controls = [
       animate(posterX, posterTarget.x, transition),
       animate(posterY, posterTarget.y, transition),
       animate(posterScale, posterTarget.scale, transition),
-      animate(panelX, panelTarget.x, transition),
-      animate(panelY, panelTarget.y, transition),
-      animate(panelScale, panelTarget.scale, transition),
+      ...(zoomPhase === "pan"
+        ? []
+        : [
+            animate(panelX, panelTarget.x, transition),
+            animate(panelY, panelTarget.y, transition),
+            animate(panelScale, panelTarget.scale, transition),
+          ]),
     ];
     return () => {
       for (const control of controls) control.stop();
@@ -217,7 +228,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
 
       setMessage("");
       setSelection({ kind: "view", cellId: targetId, drawing, camera });
-      setZoomPhase("enter");
+      setZoomPhase("pan");
     },
     [cellIds, config, drawingsById, selection],
   );
@@ -577,7 +588,7 @@ function CellOverlay({
   selection: Selection;
   config: PosterConfig;
   isSaving: boolean;
-  phase: "enter" | "idle" | "exit";
+  phase: ZoomPhase;
   style: ZoomPanelMotionStyle;
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
