@@ -414,15 +414,12 @@ export function PosterApp() {
     const cellPx = config.cellSizeIn * scale;
     const xStart = config.gridOffsetXIn * scale;
     const yStart = (config.titleHeightIn + config.gridOffsetYIn) * scale;
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = Math.max(1, Math.round(scale / 96));
     for (const id of cellIds) {
       const index = cellIds.indexOf(id);
       const col = index % config.columns;
       const row = Math.floor(index / config.columns);
       const x = xStart + col * cellPx;
       const y = yStart + row * cellPx;
-      ctx.strokeRect(x, y, cellPx, cellPx);
       const drawing = drawingsById.get(id);
       if (!drawing) continue;
       ctx.save();
