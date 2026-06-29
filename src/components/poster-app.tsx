@@ -60,6 +60,7 @@ const cameraExitTransition = {
   duration: cameraMs / 1000,
   ease: [0.42, 0, 0.28, 1],
 } as const;
+const cameraCleanupMs = cameraMs + 120;
 const zoomCanvasNeighborRadius = 1;
 const maxZoomCanvasScale = 14;
 
@@ -208,14 +209,6 @@ export function PosterApp() {
   }, [selection, refresh]);
 
   useEffect(() => {
-    if (!selection || zoomPhase !== "enter") return;
-    const timer = window.setTimeout(() => {
-      setZoomPhase("idle");
-    }, cameraMs);
-    return () => window.clearTimeout(timer);
-  }, [selection, zoomPhase]);
-
-  useEffect(() => {
     if (!selection || selection.kind !== "edit") return;
     const timer = window.setInterval(() => {
       fetch(`/api/cells/${selection.cellId}/hold`, {
@@ -251,6 +244,8 @@ export function PosterApp() {
       panelScale.set(1);
       return;
     }
+
+    if (zoomPhase === "idle") return;
 
     const posterTarget = zoomPhase === "exit" ? { x: 0, y: 0, scale: 1 } : cameraStyle.posterMotion;
     const panelTarget = zoomPhase === "exit" ? cameraStyle.targetMotion : { x: 0, y: 0, scale: 1 };
@@ -330,7 +325,7 @@ export function PosterApp() {
       window.setTimeout(() => {
         setSelection(null);
         setZoomPhase("idle");
-      }, cameraMs);
+      }, cameraCleanupMs);
       await refresh().catch(() => undefined);
       return;
     }
@@ -382,7 +377,7 @@ export function PosterApp() {
     window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
-    }, cameraMs);
+    }, cameraCleanupMs);
   }
 
   async function saveDrawing(drawing: CellDrawing) {
@@ -395,7 +390,7 @@ export function PosterApp() {
     window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
-    }, cameraMs);
+    }, cameraCleanupMs);
 
     try {
       const response = await fetch(`/api/cells/${drawing.id}`, {
