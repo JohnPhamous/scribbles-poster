@@ -1,10 +1,11 @@
-import { del, list, put } from "@vercel/blob";
+import { del, get, list, put } from "@vercel/blob";
 import { posterConfig } from "./poster-config";
 import type { CellDrawing, CellHold } from "./types";
 
 const cellPrefix = "cells/";
 const holdPrefix = "holds/";
 const lockPrefix = "locks/";
+const blobAccess = "private";
 const drawOrderLockPath = `${lockPrefix}draw-order.json`;
 const drawOrderLockTtlMs = 8_000;
 const drawOrderLockWaitMs = 6_000;
@@ -28,7 +29,7 @@ export async function listCells(): Promise<CellDrawing[]> {
   const drawings = await Promise.all(
     blobs.blobs
       .filter((blob) => blob.pathname.endsWith(".json"))
-      .map(async (blob) => readJson<CellDrawing>(blob.url)),
+      .map(async (blob) => readJson<CellDrawing>(blob.pathname)),
   );
 
   return drawings.filter(isPresent);
@@ -62,7 +63,7 @@ export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occ
 
     try {
       await put(`${cellPrefix}${drawing.id}.json`, JSON.stringify(nextDrawing), {
-        access: "public",
+        access: blobAccess,
         contentType: "application/json",
         allowOverwrite: false,
       });
@@ -92,7 +93,7 @@ async function withDrawOrderLock<T>(callback: () => Promise<T>) {
           expiresAt: new Date(Date.now() + drawOrderLockTtlMs).toISOString(),
         } satisfies BlobLock),
         {
-          access: "public",
+          access: blobAccess,
           contentType: "application/json",
           allowOverwrite: false,
         },
@@ -178,7 +179,7 @@ export async function upsertHold(cellId: string, sessionId: string, name?: strin
   }
 
   await put(`${holdPrefix}${cellId}.json`, JSON.stringify(hold), {
-    access: "public",
+    access: blobAccess,
     contentType: "application/json",
     allowOverwrite: true,
   });
@@ -205,7 +206,7 @@ async function listHolds() {
   const holds = await Promise.all(
     blobs.blobs
       .filter((blob) => blob.pathname.endsWith(".json"))
-      .map(async (blob) => readJson<CellHold>(blob.url)),
+      .map(async (blob) => readJson<CellHold>(blob.pathname)),
   );
 
   return holds.filter(isPresent);
@@ -215,14 +216,14 @@ async function readBlobByPath<T>(path: string): Promise<T | null> {
   const blobs = await list({ prefix: path, limit: 1 });
   const blob = blobs.blobs.find((item) => item.pathname === path);
   if (!blob) return null;
-  return readJson<T>(blob.url);
+  return readJson<T>(blob.pathname);
 }
 
-async function readJson<T>(url: string): Promise<T | null> {
+async function readJson<T>(pathname: string): Promise<T | null> {
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return null;
-    return (await response.json()) as T;
+    const result = await get(pathname, { access: blobAccess });
+    if (!result || result.statusCode !== 200) return null;
+    return (await new Response(result.stream).json()) as T;
   } catch {
     return null;
   }
