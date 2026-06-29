@@ -65,6 +65,7 @@ const zoomCanvasNeighborRadius = 1;
 const maxZoomCanvasScale = 14;
 const authorLabelFontRatio = 0.08;
 const authorLabelMarginRatio = 0.05;
+const authorLabelFallbackFontFamily = "Arial, sans-serif";
 const visibleRefreshMs = 1_000;
 const hiddenRefreshMs = 5_000;
 
@@ -387,7 +388,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       ctx.translate(x, y);
       ctx.scale(cellPx / config.canvasSize, cellPx / config.canvasSize);
       drawStrokes(ctx, drawing.strokes, config.canvasSize);
-      drawAuthorLabel(ctx, drawing.name, config.canvasSize);
+      drawAuthorLabel(ctx, drawing.name, config.canvasSize, titleFontFamily);
       ctx.restore();
     }
 
@@ -583,9 +584,12 @@ function DrawingCanvas({
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    let cancelled = false;
     const render = () => {
+      if (cancelled) return;
       const dpr = window.devicePixelRatio || 1;
       const backingScale = Math.max(1, renderScale);
+      const authorFontFamily = getTitleFontFamily();
       canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr * backingScale));
       canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr * backingScale));
       const ctx = canvas.getContext("2d");
@@ -597,7 +601,7 @@ function DrawingCanvas({
 
       if (replay === null) {
         drawStrokes(ctx, drawing.strokes, config.canvasSize);
-        drawAuthorLabel(ctx, drawing.name, config.canvasSize);
+        drawAuthorLabel(ctx, drawing.name, config.canvasSize, authorFontFamily);
         return;
       }
 
@@ -607,12 +611,16 @@ function DrawingCanvas({
         const untilMs = replayDuration <= 0 ? sourceDuration : Math.min(sourceDuration, (replay.elapsedMs / replayDuration) * sourceDuration);
         drawStrokes(ctx, drawing.strokes, config.canvasSize, { untilMs });
       }
-      drawAuthorLabel(ctx, drawing.name, config.canvasSize);
+      drawAuthorLabel(ctx, drawing.name, config.canvasSize, authorFontFamily);
     };
 
     render();
     const timer = window.setTimeout(render, cameraMs + 40);
-    return () => window.clearTimeout(timer);
+    void document.fonts?.ready.then(render).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [config, drawing, replay, renderScale]);
 
   return <canvas ref={canvasRef} className="drawingCanvas" />;
@@ -773,11 +781,15 @@ function getZoomCanvasScale(cameraScale: number) {
   return Math.max(1, Math.min(maxZoomCanvasScale, Math.ceil(cameraScale)));
 }
 
-function drawAuthorLabel(ctx: CanvasRenderingContext2D, name: string, canvasSize: number) {
+function getTitleFontFamily() {
+  return getComputedStyle(document.querySelector(".posterTitle") ?? document.body).fontFamily || authorLabelFallbackFontFamily;
+}
+
+function drawAuthorLabel(ctx: CanvasRenderingContext2D, name: string, canvasSize: number, fontFamily = authorLabelFallbackFontFamily) {
   const margin = canvasSize * authorLabelMarginRatio;
   ctx.save();
   ctx.fillStyle = "#9a9a9a";
-  ctx.font = `600 ${Math.round(canvasSize * authorLabelFontRatio)}px Arial, sans-serif`;
+  ctx.font = `400 ${Math.round(canvasSize * authorLabelFontRatio)}px ${fontFamily}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillText(name, margin, canvasSize - margin, canvasSize - margin * 2);
