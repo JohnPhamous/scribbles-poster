@@ -407,7 +407,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const showToolbar = showReplayTools || showPrintTools || Boolean(message);
 
   return (
-    <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
+    <main className={`app ${showToolbar ? "toolbarVisible" : "toolbarHidden"} ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
       <section className="stage" aria-label="Collaborative poster">
         <motion.div
           className="poster"

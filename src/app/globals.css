@@ -29,6 +29,11 @@ button {
   padding: 24px;
 }
 
+.toolbarHidden {
+  display: grid;
+  place-items: center;
+}
+
 .appLoading {
   display: grid;
   place-items: center;
@@ -42,6 +47,10 @@ button {
   align-items: start;
 }
 
+.toolbarHidden .stage {
+  min-height: auto;
+}
+
 .poster {
   width: min(
     92vw,
@@ -52,6 +61,13 @@ button {
   border: 1px solid #cccccc8f;
   display: grid;
   grid-template-rows: calc(var(--title-height) / var(--poster-height) * 100%) 1fr;
+}
+
+.toolbarHidden .poster {
+  width: min(
+    92vw,
+    calc((100vh - 48px) * var(--poster-width) / var(--poster-height))
+  );
 }
 
 .posterTitle {
@@ -502,6 +518,13 @@ button {
     width: min(
       96vw,
       calc((100vh - 116px) * var(--poster-width) / var(--poster-height))
+    );
+  }
+
+  .toolbarHidden .poster {
+    width: min(
+      96vw,
+      calc((100vh - 24px) * var(--poster-width) / var(--poster-height))
     );
   }
 
