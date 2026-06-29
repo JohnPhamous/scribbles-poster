@@ -784,6 +784,7 @@ function Editor({
 
   function onPointerDown(event: PointerEvent<HTMLCanvasElement>) {
     event.currentTarget.setPointerCapture(event.pointerId);
+    const didCommitCurrentStroke = commitCurrentStroke();
     strokeStartedAtRef.current = performance.now();
     currentStrokeRef.current = {
       id: crypto.randomUUID(),
@@ -793,6 +794,9 @@ function Editor({
       width: config.strokeWidth,
       points: [getPoint(event)],
     };
+    if (didCommitCurrentStroke || strokesRef.current.length === 0) {
+      setStrokesVersion((value) => value + 1);
+    }
     redraw();
   }
 
@@ -807,14 +811,26 @@ function Editor({
   }
 
   function finishStroke() {
-    if (!currentStrokeRef.current) return;
-    strokesRef.current = [...strokesRef.current, currentStrokeRef.current];
-    currentStrokeRef.current = null;
+    if (!commitCurrentStroke()) return;
     setStrokesVersion((value) => value + 1);
     redraw();
   }
 
+  function commitCurrentStroke() {
+    const currentStroke = currentStrokeRef.current;
+    if (!currentStroke) return false;
+    strokesRef.current = [...strokesRef.current, currentStroke];
+    currentStrokeRef.current = null;
+    return true;
+  }
+
   function undo() {
+    if (currentStrokeRef.current) {
+      currentStrokeRef.current = null;
+      setStrokesVersion((value) => value + 1);
+      redraw();
+      return;
+    }
     strokesRef.current = strokesRef.current.slice(0, -1);
     setStrokesVersion((value) => value + 1);
     redraw();
@@ -828,6 +844,10 @@ function Editor({
   }
 
   function save() {
+    const didCommitCurrentStroke = commitCurrentStroke();
+    if (didCommitCurrentStroke) {
+      setStrokesVersion((value) => value + 1);
+    }
     const now = new Date().toISOString();
     onSave({
       id: cellId,
@@ -840,6 +860,7 @@ function Editor({
   }
 
   const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
+  const hasStrokeContent = strokesRef.current.length > 0 || currentStrokeRef.current !== null;
 
   return (
     <>
@@ -851,6 +872,7 @@ function Editor({
           onPointerMove={onPointerMove}
           onPointerUp={finishStroke}
           onPointerCancel={finishStroke}
+          onLostPointerCapture={finishStroke}
         />
       </div>
       <div className="editorControls">
@@ -868,16 +890,16 @@ function Editor({
         </div>
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" aria-label="Your name" />
         <span className="timer">{formatTime(secondsLeft)}</span>
-        <button type="button" onClick={undo} disabled={strokesRef.current.length === 0 || isSaving}>
+        <button type="button" onClick={undo} disabled={!hasStrokeContent || isSaving}>
           Undo
         </button>
-        <button type="button" onClick={clear} disabled={strokesRef.current.length === 0 || isSaving}>
+        <button type="button" onClick={clear} disabled={!hasStrokeContent || isSaving}>
           Clear
         </button>
         <button type="button" onClick={onClose} disabled={isSaving}>
           Cancel
         </button>
-        <button type="button" onClick={save} disabled={isSaving || strokesRef.current.length === 0} data-primary>
+        <button type="button" onClick={save} disabled={isSaving || !hasStrokeContent} data-primary>
           {isSaving ? "Saving" : "Save"}
         </button>
         <span className="srOnly">{strokesVersion}</span>
