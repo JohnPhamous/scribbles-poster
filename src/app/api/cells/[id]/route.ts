@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidCellId } from "@/lib/poster-config";
-import { deleteHold, getCell, getSessionHold, saveCell } from "@/lib/storage";
+import { deleteHold, getCell, getSessionHold, hasPersistentStorage, saveCell } from "@/lib/storage";
+import type { CellHold } from "@/lib/types";
 import { validateDrawing } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const preferredRegion = "sfo1";
 
 type Params = {
@@ -31,7 +32,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Invalid cell" }, { status: 404 });
   }
 
-  const body = (await request.json()) as { sessionId?: string; holdStartedAt?: string; drawing?: unknown };
+  const body = (await request.json()) as { sessionId?: string; holdStartedAt?: string; hold?: unknown; drawing?: unknown };
   if (!body.sessionId || !body.holdStartedAt) {
     return NextResponse.json({ error: "Missing hold" }, { status: 400 });
   }
@@ -41,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
   }
 
-  const hold = await getSessionHold(id, body.sessionId, body.holdStartedAt);
+  const hold = await getSessionHold(id, body.sessionId, body.holdStartedAt, { retry: true }) ?? getFallbackHold(id, body.sessionId, body.holdStartedAt, body.hold);
   if (!hold) {
     return NextResponse.json({ error: "Cell hold is missing or expired", hold }, { status: 423 });
   }
@@ -58,4 +59,12 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
   await deleteHold(id, body.sessionId, body.holdStartedAt);
   return NextResponse.json(savedDrawing);
+}
+
+function getFallbackHold(cellId: string, sessionId: string, startedAt: string, value: unknown): CellHold | null {
+  if ((hasPersistentStorage && process.env.NODE_ENV === "production") || !value || typeof value !== "object") return null;
+  const hold = value as Partial<CellHold>;
+  if (hold.cellId !== cellId || hold.sessionId !== sessionId || hold.startedAt !== startedAt) return null;
+  if (typeof hold.expiresAt !== "string" || new Date(hold.expiresAt).getTime() <= Date.now()) return null;
+  return hold as CellHold;
 }

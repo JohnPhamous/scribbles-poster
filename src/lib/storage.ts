@@ -12,10 +12,23 @@ const drawOrderLockWaitMs = 6_000;
 const drawOrderLockRetryMs = 120;
 const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
-const memoryCells = new Map<string, CellDrawing>();
-const memoryHolds = new Map<string, CellHold>();
+type MemoryStore = {
+  cells: Map<string, CellDrawing>;
+  holds: Map<string, CellHold>;
+};
+
+const memoryStore = ((globalThis as typeof globalThis & { __scribblePosterMemory?: MemoryStore }).__scribblePosterMemory ??= {
+  cells: new Map<string, CellDrawing>(),
+  holds: new Map<string, CellHold>(),
+});
+const memoryCells = memoryStore.cells;
+const memoryHolds = memoryStore.holds;
 const cellsListCacheMs = 1_200;
 const holdsListCacheMs = 300;
+const holdReadRetryAttempts = 6;
+const holdReadRetryMs = 250;
+
+export const hasPersistentStorage = hasBlobToken;
 
 let cellsCache: { expiresAt: number; value: CellDrawing[] } | null = null;
 let holdsCache: { expiresAt: number; value: CellHold[] } | null = null;
@@ -189,13 +202,18 @@ export async function getHold(cellId: string): Promise<CellHold | null> {
   return hold && isHoldActive(hold) ? hold : null;
 }
 
-export async function getSessionHold(cellId: string, sessionId: string, startedAt?: string): Promise<CellHold | null> {
+export async function getSessionHold(cellId: string, sessionId: string, startedAt?: string, options?: { retry?: boolean }): Promise<CellHold | null> {
   if (!hasBlobToken) {
     const hold = memoryHolds.get(cellId) ?? null;
     return isMatchingActiveHold(hold, sessionId, startedAt) ? hold : null;
   }
-  const hold = await readJson<CellHold>(getHoldPath(cellId));
-  return isMatchingActiveHold(hold, sessionId, startedAt) ? hold : null;
+  const attempts = options?.retry ? holdReadRetryAttempts : 1;
+  for (let index = 0; index < attempts; index += 1) {
+    const hold = await readJson<CellHold>(getHoldPath(cellId));
+    if (isMatchingActiveHold(hold, sessionId, startedAt)) return hold;
+    if (index < attempts - 1) await sleep(holdReadRetryMs);
+  }
+  return null;
 }
 
 export async function acquireHold(cellId: string, sessionId: string, name?: string) {

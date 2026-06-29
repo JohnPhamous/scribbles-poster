@@ -9,7 +9,7 @@ import { applyOptimisticDrawings, rollbackOptimisticDrawing, upsertDrawing } fro
 import type { CellDrawing, CellHold, Point, PosterConfig, PosterSnapshot, Stroke } from "@/lib/types";
 
 type Selection =
-  | { kind: "edit"; cellId: string; hold: CellHold; camera: CameraFrame }
+  | { kind: "edit"; cellId: string; hold: CellHold; camera: CameraFrame; isClaiming: boolean }
   | { kind: "view"; cellId: string; drawing: CellDrawing; camera: CameraFrame };
 
 type ZoomRect = {
@@ -298,7 +298,7 @@ export function PosterApp() {
     }
 
     const optimisticHold = createOptimisticHold(cellId, sessionId, config.holdMs);
-    setSelection({ kind: "edit", cellId, hold: optimisticHold, camera });
+    setSelection({ kind: "edit", cellId, hold: optimisticHold, camera, isClaiming: true });
     setZoomPhase("enter");
     setSnapshot((current) =>
       current
@@ -338,7 +338,7 @@ export function PosterApp() {
       return;
     }
 
-    setSelection((current) => (current?.kind === "edit" && current.cellId === cellId ? { ...current, hold: confirmedHold } : current));
+    setSelection((current) => (current?.kind === "edit" && current.cellId === cellId ? { ...current, hold: confirmedHold, isClaiming: false } : current));
     setSnapshot((current) =>
       current
         ? {
@@ -377,7 +377,7 @@ export function PosterApp() {
     }, cameraCleanupMs);
   }
 
-  async function saveDrawing(drawing: CellDrawing) {
+  async function saveDrawing(drawing: CellDrawing, hold: CellHold) {
     optimisticDrawingsRef.current.set(drawing.id, drawing);
     setSnapshot((current) => (current ? upsertDrawing(withOptimisticDrawings(current), drawing) : current));
     setMessage("Saved.");
@@ -390,18 +390,16 @@ export function PosterApp() {
     }, cameraCleanupMs);
 
     try {
-      const currentSelection = selectedRef.current;
-      const holdStartedAt = currentSelection?.kind === "edit" && currentSelection.cellId === drawing.id ? currentSelection.hold.startedAt : undefined;
       const response = await fetch(`/api/cells/${drawing.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId, holdStartedAt, drawing }),
+        body: JSON.stringify({ sessionId, holdStartedAt: hold.startedAt, hold, drawing }),
       });
 
       if (!response.ok) {
         optimisticDrawingsRef.current.delete(drawing.id);
         setSnapshot((current) => (current ? rollbackOptimisticDrawing(current, drawing) : current));
-        setMessage(response.status === 409 ? "That cell was already saved." : "Could not save. Your hold may have expired.");
+        setMessage(getSaveErrorMessage(response.status));
         await refresh().catch(() => undefined);
         return;
       }
@@ -684,7 +682,7 @@ function CellOverlay({
   phase: "enter" | "idle" | "exit";
   style: ZoomPanelMotionStyle;
   onClose: () => void;
-  onSave: (drawing: CellDrawing) => void;
+  onSave: (drawing: CellDrawing, hold: CellHold) => void;
 }) {
   return (
     <div className="overlay noPrint">
@@ -700,6 +698,7 @@ function CellOverlay({
             hold={selection.hold}
             config={config}
             sessionId={sessionId}
+            isClaiming={selection.isClaiming}
             isSaving={isSaving}
             onClose={onClose}
             onSave={onSave}
@@ -801,6 +800,13 @@ function getDrawOrder(drawing: CellDrawing) {
   return Number.isFinite(drawing.drawOrder) && drawing.drawOrder > 0 ? drawing.drawOrder : Number.MAX_SAFE_INTEGER;
 }
 
+function getSaveErrorMessage(status: number) {
+  if (status === 400) return "Could not save. Refresh and try again.";
+  if (status === 409) return "That cell was already saved.";
+  if (status === 423) return "Could not save. Your hold may have expired.";
+  return "Could not save. Check your connection and try another cell.";
+}
+
 function getReplayDuration(mode: ReplayMode, drawingCount: number, config: PosterConfig) {
   if (mode === "simultaneous") return config.maxReplayMs;
   return Math.max(config.sequentialReplayCellMs, drawingCount * config.sequentialReplayCellMs);
@@ -849,6 +855,7 @@ function Editor({
   hold,
   config,
   sessionId,
+  isClaiming,
   isSaving,
   onClose,
   onSave,
@@ -857,9 +864,10 @@ function Editor({
   hold: CellHold;
   config: PosterConfig;
   sessionId: string;
+  isClaiming: boolean;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (drawing: CellDrawing) => void;
+  onSave: (drawing: CellDrawing, hold: CellHold) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
@@ -986,14 +994,17 @@ function Editor({
       setStrokesVersion((value) => value + 1);
     }
     const now = new Date().toISOString();
-    onSave({
-      id: cellId,
-      drawOrder: 0,
-      name: name.trim() || "Anonymous",
-      strokes: strokesRef.current,
-      createdAt: now,
-      updatedAt: now,
-    });
+    onSave(
+      {
+        id: cellId,
+        drawOrder: 0,
+        name: name.trim() || "Anonymous",
+        strokes: strokesRef.current,
+        createdAt: now,
+        updatedAt: now,
+      },
+      hold,
+    );
   }
 
   const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
@@ -1036,8 +1047,8 @@ function Editor({
         <button type="button" onClick={onClose} disabled={isSaving}>
           Cancel
         </button>
-        <button type="button" onClick={save} disabled={isSaving || !hasStrokeContent} data-primary>
-          {isSaving ? "Saving" : "Save"}
+        <button type="button" onClick={save} disabled={isClaiming || isSaving || !hasStrokeContent} data-primary>
+          {isSaving ? "Saving" : isClaiming ? "Claiming" : "Save"}
         </button>
         <span className="srOnly">{strokesVersion}</span>
       </div>

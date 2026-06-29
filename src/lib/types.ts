@@ -47,6 +47,7 @@ export type PosterConfig = {
   gridHeightIn: number;
   gridOffsetXIn: number;
   gridOffsetYIn: number;
+  gridPaddingIn: number;
   columns: number;
   rows: number;
   canvasSize: number;

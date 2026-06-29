@@ -3,7 +3,7 @@ import { isValidCellId } from "@/lib/poster-config";
 import { acquireHold, deleteHold, getCellFast, getSessionHold } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const preferredRegion = "sfo1";
 
 type Params = {
