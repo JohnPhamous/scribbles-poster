@@ -78,6 +78,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const [replayElapsed, setReplayElapsed] = useState(0);
   const [replayMode, setReplayMode] = useState<ReplayMode>("simultaneous");
   const [isSaving, setIsSaving] = useState(false);
+  const [panSourceCellId, setPanSourceCellId] = useState<string | null>(null);
 
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -227,8 +228,12 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       if (!drawing || !camera) return;
 
       setMessage("");
+      setPanSourceCellId(selection.cellId);
       setSelection({ kind: "view", cellId: targetId, drawing, camera });
       setZoomPhase("pan");
+      window.setTimeout(() => {
+        setPanSourceCellId(null);
+      }, cameraCleanupMs);
     },
     [cellIds, config, drawingsById, selection],
   );
@@ -269,11 +274,13 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
 
     const drawing = drawingsById.get(cellId);
     if (drawing) {
+      setPanSourceCellId(null);
       setSelection({ kind: "view", cellId, drawing, camera });
       setZoomPhase("enter");
       return;
     }
 
+    setPanSourceCellId(null);
     setSelection({ kind: "edit", cellId, camera });
     setZoomPhase("enter");
   }
@@ -282,6 +289,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     if (!selection) return;
 
     setZoomPhase("exit");
+    setPanSourceCellId(null);
 
     window.setTimeout(() => {
       setSelection(null);
@@ -294,6 +302,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     setSnapshot((current) => (current ? upsertDrawing(withOptimisticDrawings(current), drawing) : current));
     setMessage("Saved.");
     setZoomPhase("exit");
+    setPanSourceCellId(null);
     setIsSaving(true);
 
     window.setTimeout(() => {
@@ -420,7 +429,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
                 drawing={drawingsById.get(cellId)}
                 replay={replayByCellId.get(cellId) ?? null}
                 isSelected={selection?.cellId === cellId}
-                renderScale={isZoomNeighborCell(cellIds, cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
+                renderScale={shouldRenderHighResolutionCell(cellIds, cellId, selection?.cellId, panSourceCellId, config) ? zoomCanvasScale : 1}
                 onOpen={(camera) => openCell(cellId, camera)}
               />
             ))}
@@ -596,34 +605,39 @@ function CellOverlay({
   onClose: () => void;
   onSave: (drawing: CellDrawing) => void;
 }) {
+  if (selection.kind === "view") {
+    return (
+      <div className="overlay noPrint">
+        <div className="viewPanSurface" onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
+        <div className={`viewControls ${phase === "exit" ? "closing" : "opening"}`}>
+          <p className="status">Read-only saved cell.</p>
+          <button type="button" onClick={onClose}>
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="overlay noPrint">
-      {selection.kind === "edit" ? (
-        <motion.div aria-hidden="true" className={`drawGuideFrame ${phase === "exit" ? "closing" : "opening"}`} style={style}>
-          <span className="drawGuideLine drawGuideLineTop" />
-          <span className="drawGuideLine drawGuideLineRight" />
-          <span className="drawGuideLine drawGuideLineBottom" />
-          <span className="drawGuideLine drawGuideLineLeft" />
-        </motion.div>
-      ) : null}
+      <motion.div aria-hidden="true" className={`drawGuideFrame ${phase === "exit" ? "closing" : "opening"}`} style={style}>
+        <span className="drawGuideLine drawGuideLineTop" />
+        <span className="drawGuideLine drawGuideLineRight" />
+        <span className="drawGuideLine drawGuideLineBottom" />
+        <span className="drawGuideLine drawGuideLineLeft" />
+      </motion.div>
       <motion.div
         className={`zoomPanel ${phase === "exit" ? "closing" : "opening"}`}
-        onPointerCancel={onPointerCancel}
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
         style={style}
       >
-        {selection.kind === "view" ? (
-          <ReadOnlyCell drawing={selection.drawing} config={config} onClose={onClose} />
-        ) : (
-          <Editor
-            cellId={selection.cellId}
-            config={config}
-            isSaving={isSaving}
-            onClose={onClose}
-            onSave={onSave}
-          />
-        )}
+        <Editor
+          cellId={selection.cellId}
+          config={config}
+          isSaving={isSaving}
+          onClose={onClose}
+          onSave={onSave}
+        />
       </motion.div>
     </div>
   );
@@ -751,6 +765,19 @@ function isZoomNeighborCell(cellIds: string[], cellId: string, selectedCellId: s
   );
 }
 
+function shouldRenderHighResolutionCell(
+  cellIds: string[],
+  cellId: string,
+  selectedCellId: string | undefined,
+  panSourceCellId: string | null,
+  config: PosterConfig,
+) {
+  return (
+    isZoomNeighborCell(cellIds, cellId, selectedCellId, config) ||
+    isZoomNeighborCell(cellIds, cellId, panSourceCellId ?? undefined, config)
+  );
+}
+
 function getOrderedDrawings(drawings: CellDrawing[]) {
   return [...drawings].sort((a, b) => {
     const byOrder = getDrawOrder(a) - getDrawOrder(b);
@@ -796,22 +823,6 @@ function getReplayByCellId(mode: ReplayMode, elapsedMs: number, drawings: CellDr
   });
 
   return map;
-}
-
-function ReadOnlyCell({ drawing, config, onClose }: { drawing: CellDrawing; config: PosterConfig; onClose: () => void }) {
-  return (
-    <>
-      <div className="editorCanvasWrap readOnly">
-        <DrawingCanvas drawing={drawing} config={config} replay={null} />
-      </div>
-      <div className="editorControls">
-        <p className="status">Read-only saved cell.</p>
-        <button type="button" onClick={onClose}>
-          Back
-        </button>
-      </div>
-    </>
-  );
 }
 
 function Editor({
