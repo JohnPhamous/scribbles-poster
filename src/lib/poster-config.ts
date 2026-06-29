@@ -31,7 +31,6 @@ export const posterConfig: PosterConfig = {
   strokeWidth: 14,
   maxReplayMs: 45_000,
   sequentialReplayCellMs: 2_200,
-  holdMs: 10 * 60 * 1000,
   exportDpi: 150,
   palette: ["#3d348bff", "#7678edff", "#f7b801ff", "#f18701ff", "#f35b04ff"],
 };

@@ -131,48 +131,12 @@ button {
   opacity: 1;
 }
 
-.cell.held::after {
-  background: rgba(0, 0, 0, 0.07);
-  opacity: 1;
-}
-
-.cell.held {
-  cursor: not-allowed;
-}
-
-.cell.held:hover::after,
-.cell.held:focus-visible::after {
-  opacity: 1;
-}
-
-.cell.heldOwn::after {
-  background: rgba(131, 56, 236, 0.1);
-}
-
 .drawingCanvas {
   display: block;
   height: 100%;
   min-height: 0;
   min-width: 0;
   width: 100%;
-}
-
-.cellHeld {
-  background: rgba(0, 0, 0, 0.76);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  left: 50%;
-  line-height: 1;
-  padding: 6px 8px;
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.cell.heldOwn .cellHeld {
-  background: rgba(131, 56, 236, 0.86);
 }
 
 .toolbar {

@@ -1,6 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { posterConfig } from "./poster-config";
-import { listActiveHolds, listCells } from "./storage";
+import { listCells } from "./storage";
 import type { PosterSnapshot } from "./types";
 
 export const posterCellsCacheTag = "poster-cells";
@@ -15,12 +15,11 @@ const getCachedCells = unstable_cache(
 );
 
 export async function getPosterSnapshot(): Promise<PosterSnapshot> {
-  const [cells, holds] = await Promise.all([getCachedCells(), listActiveHolds()]);
+  const cells = await getCachedCells();
 
   return {
     config: posterConfig,
     cells,
-    holds,
     now: new Date().toISOString(),
   };
 }

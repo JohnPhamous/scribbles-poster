@@ -8,10 +8,10 @@ import { getDirectionalCellId } from "@/lib/grid-navigation";
 import type { GridNavigationDirection } from "@/lib/grid-navigation";
 import { getCellIds } from "@/lib/poster-config";
 import { applyOptimisticDrawings, rollbackOptimisticDrawing, upsertDrawing } from "@/lib/poster-state";
-import type { CellDrawing, CellHold, Point, PosterConfig, PosterSnapshot, Stroke } from "@/lib/types";
+import type { CellDrawing, Point, PosterConfig, PosterSnapshot, Stroke } from "@/lib/types";
 
 type Selection =
-  | { kind: "edit"; cellId: string; hold: CellHold; camera: CameraFrame; isClaiming: boolean }
+  | { kind: "edit"; cellId: string; camera: CameraFrame }
   | { kind: "view"; cellId: string; drawing: CellDrawing; camera: CameraFrame };
 
 type ZoomRect = {
@@ -66,23 +66,11 @@ const authorLabelFontRatio = 0.08;
 const authorLabelMarginRatio = 0.05;
 const visibleRefreshMs = 1_000;
 const hiddenRefreshMs = 5_000;
-const heartbeatMs = 60_000;
-
-function createOptimisticHold(cellId: string, sessionId: string, holdMs: number): CellHold {
-  const now = new Date();
-  return {
-    cellId,
-    sessionId,
-    startedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + holdMs).toISOString(),
-  };
-}
 
 export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot }) {
   const [snapshot, setSnapshot] = useState<PosterSnapshot | null>(() => initialSnapshot);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [zoomPhase, setZoomPhase] = useState<"enter" | "idle" | "exit">("idle");
-  const [sessionId, setSessionId] = useState("");
   const [message, setMessage] = useState("");
   const [showPrintTools, setShowPrintTools] = useState(false);
   const [replayStartedAt, setReplayStartedAt] = useState<number | null>(null);
@@ -90,10 +78,8 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const [replayMode, setReplayMode] = useState<ReplayMode>("simultaneous");
   const [isSaving, setIsSaving] = useState(false);
 
-  const selectedRef = useRef<Selection | null>(null);
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
-  selectedRef.current = selection;
   const cameraStyle = useMemo(() => (selection ? getCameraStyle(selection.camera) : undefined), [selection]);
   const posterX = useMotionValue(0);
   const posterY = useMotionValue(0);
@@ -131,15 +117,6 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
 
   const orderedDrawings = useMemo(() => getOrderedDrawings(snapshot?.cells ?? []), [snapshot]);
 
-  const holdsById = useMemo(() => {
-    const map = new Map<string, CellHold>();
-    const now = Date.now();
-    for (const hold of snapshot?.holds ?? []) {
-      if (new Date(hold.expiresAt).getTime() > now) map.set(hold.cellId, hold);
-    }
-    return map;
-  }, [snapshot]);
-
   const withOptimisticDrawings = useCallback((next: PosterSnapshot) => applyOptimisticDrawings(next, optimisticDrawingsRef.current), []);
 
   const refresh = useCallback(async () => {
@@ -150,12 +127,6 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   }, [withOptimisticDrawings]);
 
   useEffect(() => {
-    let existing = window.localStorage.getItem("scribbles-session-id");
-    if (!existing) {
-      existing = crypto.randomUUID();
-      window.localStorage.setItem("scribbles-session-id", existing);
-    }
-    setSessionId(existing);
     setShowPrintTools(new URLSearchParams(window.location.search).get("print") === "1");
 
     let timer = 0;
@@ -182,42 +153,6 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       document.removeEventListener("visibilitychange", refreshNow);
     };
   }, [refresh]);
-
-  useEffect(() => {
-    if (!selection || selection.kind !== "edit") return;
-    const timer = window.setInterval(() => {
-      const msLeft = new Date(selection.hold.expiresAt).getTime() - Date.now();
-      if (msLeft <= 0) {
-        setSelection(null);
-        setMessage("Your 10 minute cell hold expired. Pick another open cell.");
-        refresh().catch(() => undefined);
-      }
-    }, 500);
-    return () => window.clearInterval(timer);
-  }, [selection, refresh]);
-
-  useEffect(() => {
-    if (!selection || selection.kind !== "edit") return;
-    const timer = window.setInterval(() => {
-      fetch(`/api/cells/${selection.cellId}/hold`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "heartbeat", sessionId }),
-      })
-        .then(async (response) => {
-          if (response.ok) return;
-          const result = (await response.json().catch(() => null)) as { reason?: string } | null;
-          if (response.status === 410 || result?.reason === "invalid") {
-            setSelection(null);
-            setZoomPhase("idle");
-            setMessage("Your cell hold expired. Pick another open cell.");
-            await refresh().catch(() => undefined);
-          }
-        })
-        .catch(() => undefined);
-    }, heartbeatMs);
-    return () => window.clearInterval(timer);
-  }, [refresh, selection, sessionId]);
 
   useEffect(() => {
     if (replayStartedAt === null || !config) return;
@@ -269,19 +204,6 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     };
   }, [cameraStyle, panelScale, panelX, panelY, posterScale, posterX, posterY, selection, zoomPhase]);
 
-  useEffect(() => {
-    const release = () => {
-      const current = selectedRef.current;
-      if (current?.kind !== "edit") return;
-      navigator.sendBeacon?.(
-        `/api/cells/${current.cellId}/hold`,
-        new Blob([JSON.stringify({ action: "release", sessionId, holdStartedAt: current.hold.startedAt })], { type: "application/json" }),
-      );
-    };
-    window.addEventListener("pagehide", release);
-    return () => window.removeEventListener("pagehide", release);
-  }, [sessionId]);
-
   const navigateView = useCallback(
     (direction: GridNavigationDirection) => {
       if (!selection || selection.kind !== "view" || !config) return;
@@ -331,7 +253,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   }
 
   async function openCell(cellId: string, camera: CameraFrame) {
-    if (!snapshot || !sessionId || !config) return;
+    if (!snapshot || !config) return;
     setMessage("");
 
     const drawing = drawingsById.get(cellId);
@@ -341,62 +263,8 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       return;
     }
 
-    const hold = holdsById.get(cellId);
-    if (hold) {
-      setMessage(hold.sessionId === sessionId ? "That cell is already held." : "That cell is currently held by someone else.");
-      return;
-    }
-
-    const optimisticHold = createOptimisticHold(cellId, sessionId, config.holdMs);
-    setSelection({ kind: "edit", cellId, hold: optimisticHold, camera, isClaiming: true });
+    setSelection({ kind: "edit", cellId, camera });
     setZoomPhase("enter");
-    setSnapshot((current) =>
-      current
-        ? {
-            ...current,
-            holds: [...current.holds.filter((item) => item.cellId !== cellId), optimisticHold],
-          }
-        : current,
-    );
-
-    const response = await fetch(`/api/cells/${cellId}/hold`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "acquire", sessionId }),
-    });
-    const result = (await response.json()) as { ok: boolean; reason?: string; hold?: CellHold };
-
-    if (!response.ok || !result.ok || !result.hold) {
-      setMessage(result.reason === "held" ? "That cell was just claimed." : "Could not claim that cell.");
-      setZoomPhase("exit");
-      window.setTimeout(() => {
-        setSelection(null);
-        setZoomPhase("idle");
-      }, cameraCleanupMs);
-      await refresh().catch(() => undefined);
-      return;
-    }
-
-    const confirmedHold = result.hold;
-    const currentSelection = selectedRef.current;
-    if (currentSelection?.kind !== "edit" || currentSelection.cellId !== cellId) {
-      fetch(`/api/cells/${cellId}/hold`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release", sessionId, holdStartedAt: confirmedHold.startedAt }),
-      }).catch(() => undefined);
-      return;
-    }
-
-    setSelection((current) => (current?.kind === "edit" && current.cellId === cellId ? { ...current, hold: confirmedHold, isClaiming: false } : current));
-    setSnapshot((current) =>
-      current
-        ? {
-            ...current,
-            holds: [...current.holds.filter((item) => item.cellId !== cellId), confirmedHold],
-          }
-        : current,
-    );
   }
 
   async function closeSelection() {
@@ -404,30 +272,13 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
 
     setZoomPhase("exit");
 
-    if (selection?.kind === "edit") {
-      const releasedCellId = selection.cellId;
-      setSnapshot((current) =>
-        current
-          ? {
-              ...current,
-              holds: current.holds.filter((item) => item.cellId !== releasedCellId),
-            }
-          : current,
-      );
-      fetch(`/api/cells/${selection.cellId}/hold`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release", sessionId, holdStartedAt: selection.hold.startedAt }),
-      }).catch(() => undefined);
-    }
-
     window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
     }, cameraCleanupMs);
   }
 
-  async function saveDrawing(drawing: CellDrawing, hold: CellHold) {
+  async function saveDrawing(drawing: CellDrawing) {
     optimisticDrawingsRef.current.set(drawing.id, drawing);
     setSnapshot((current) => (current ? upsertDrawing(withOptimisticDrawings(current), drawing) : current));
     setMessage("Saved.");
@@ -443,7 +294,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       const response = await fetch(`/api/cells/${drawing.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId, holdStartedAt: hold.startedAt, hold, drawing }),
+        body: JSON.stringify({ drawing }),
       });
 
       if (!response.ok) {
@@ -556,8 +407,6 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
                 cellId={cellId}
                 config={config}
                 drawing={drawingsById.get(cellId)}
-                hold={holdsById.get(cellId)}
-                ownSessionId={sessionId}
                 replay={replayByCellId.get(cellId) ?? null}
                 renderScale={isZoomNeighborCell(cellIds, cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
                 onOpen={(camera) => openCell(cellId, camera)}
@@ -594,7 +443,6 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
         <CellOverlay
           selection={selection}
           config={config}
-          sessionId={sessionId}
           isSaving={isSaving}
           phase={zoomPhase}
           style={zoomPanelMotionStyle}
@@ -615,8 +463,6 @@ function PosterCell({
   cellId,
   config,
   drawing,
-  hold,
-  ownSessionId,
   replay,
   renderScale,
   onOpen,
@@ -624,19 +470,13 @@ function PosterCell({
   cellId: string;
   config: PosterConfig;
   drawing?: CellDrawing;
-  hold?: CellHold;
-  ownSessionId: string;
   replay: CellReplay | null;
   renderScale: number;
   onOpen: (camera: CameraFrame) => void;
 }) {
-  const hasHold = Boolean(hold && !drawing);
-  const heldByOther = Boolean(hasHold && hold?.sessionId !== ownSessionId);
-  const heldByOwner = Boolean(hasHold && hold?.sessionId === ownSessionId);
-  const isAvailable = !drawing && !hasHold;
+  const isAvailable = !drawing;
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
-    if (hasHold) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const poster = event.currentTarget.closest(".poster")?.getBoundingClientRect();
     if (!poster) return;
@@ -658,14 +498,12 @@ function PosterCell({
 
   return (
     <button
-      className={`cell ${drawing ? "occupied" : ""} ${hasHold ? "held" : ""} ${heldByOther ? "heldOther" : ""} ${heldByOwner ? "heldOwn" : ""} ${isAvailable ? "available" : ""}`}
+      className={`cell ${drawing ? "occupied" : ""} ${isAvailable ? "available" : ""}`}
       type="button"
-      disabled={hasHold}
       onClick={handleClick}
-      aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : hasHold ? (heldByOwner ? " held by you" : " held") : " empty"}`}
+      aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : " empty"}`}
     >
       <DrawingCanvas drawing={drawing} config={config} replay={replay} renderScale={renderScale} />
-      {hasHold ? <span className="cellHeld">{heldByOwner ? "Yours" : "Held"}</span> : null}
     </button>
   );
 }
@@ -724,7 +562,6 @@ function DrawingCanvas({
 function CellOverlay({
   selection,
   config,
-  sessionId,
   isSaving,
   phase,
   style,
@@ -736,7 +573,6 @@ function CellOverlay({
 }: {
   selection: Selection;
   config: PosterConfig;
-  sessionId: string;
   isSaving: boolean;
   phase: "enter" | "idle" | "exit";
   style: ZoomPanelMotionStyle;
@@ -744,7 +580,7 @@ function CellOverlay({
   onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: () => void;
   onClose: () => void;
-  onSave: (drawing: CellDrawing, hold: CellHold) => void;
+  onSave: (drawing: CellDrawing) => void;
 }) {
   return (
     <div className="overlay noPrint">
@@ -768,10 +604,7 @@ function CellOverlay({
         ) : (
           <Editor
             cellId={selection.cellId}
-            hold={selection.hold}
             config={config}
-            sessionId={sessionId}
-            isClaiming={selection.isClaiming}
             isSaving={isSaving}
             onClose={onClose}
             onSave={onSave}
@@ -921,7 +754,6 @@ function getDrawOrder(drawing: CellDrawing) {
 function getSaveErrorMessage(status: number) {
   if (status === 400) return "Could not save. Refresh and try again.";
   if (status === 409) return "That cell was already saved.";
-  if (status === 423) return "Could not save. Your hold may have expired.";
   return "Could not save. Check your connection and try another cell.";
 }
 
@@ -970,22 +802,16 @@ function ReadOnlyCell({ drawing, config, onClose }: { drawing: CellDrawing; conf
 
 function Editor({
   cellId,
-  hold,
   config,
-  sessionId,
-  isClaiming,
   isSaving,
   onClose,
   onSave,
 }: {
   cellId: string;
-  hold: CellHold;
   config: PosterConfig;
-  sessionId: string;
-  isClaiming: boolean;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (drawing: CellDrawing, hold: CellHold) => void;
+  onSave: (drawing: CellDrawing) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
@@ -1124,17 +950,14 @@ function Editor({
       setStrokesVersion((value) => value + 1);
     }
     const now = new Date().toISOString();
-    onSave(
-      {
-        id: cellId,
-        drawOrder: 0,
-        name: trimmedName,
-        strokes: strokesRef.current,
-        createdAt: now,
-        updatedAt: now,
-      },
-      hold,
-    );
+    onSave({
+      id: cellId,
+      drawOrder: 0,
+      name: trimmedName,
+      strokes: strokesRef.current,
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 
   const hasStrokeContent = strokesRef.current.length > 0 || currentStrokeRef.current !== null;
@@ -1176,8 +999,8 @@ function Editor({
         <button type="button" onClick={onClose} disabled={isSaving}>
           Cancel
         </button>
-        <button type="button" onClick={save} disabled={isClaiming || isSaving || !hasStrokeContent || !hasName} data-primary>
-          {isSaving ? "Saving" : isClaiming ? "Claiming" : "Save"}
+        <button type="button" onClick={save} disabled={isSaving || !hasStrokeContent || !hasName} data-primary>
+          {isSaving ? "Saving" : "Save"}
         </button>
         <span className="srOnly">{strokesVersion}</span>
       </div>

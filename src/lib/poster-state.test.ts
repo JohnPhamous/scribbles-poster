@@ -4,18 +4,16 @@ import { applyOptimisticDrawings, rollbackOptimisticDrawing, upsertDrawing } fro
 import type { CellDrawing, PosterSnapshot } from "./types";
 
 describe("poster state helpers", () => {
-  it("keeps optimistic drawings over stale snapshots and removes their holds", () => {
+  it("keeps optimistic drawings over stale snapshots", () => {
     const drawing = makeDrawing("r1c1", { drawOrder: 0, name: "Optimistic" });
     const optimistic = new Map([[drawing.id, drawing]]);
     const snapshot = makeSnapshot({
       cells: [],
-      holds: [{ cellId: "r1c1", sessionId: "s1", startedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2026-01-01T00:10:00.000Z" }],
     });
 
     const next = applyOptimisticDrawings(snapshot, optimistic);
 
     expect(next.cells).toEqual([drawing]);
-    expect(next.holds).toEqual([]);
     expect(optimistic.has("r1c1")).toBe(true);
   });
 
@@ -23,7 +21,7 @@ describe("poster state helpers", () => {
     const optimisticDrawing = makeDrawing("r1c1", { drawOrder: 0, name: "Optimistic" });
     const confirmedDrawing = makeDrawing("r1c1", { drawOrder: 4, name: "Confirmed" });
     const optimistic = new Map([[optimisticDrawing.id, optimisticDrawing]]);
-    const snapshot = makeSnapshot({ cells: [confirmedDrawing], holds: [] });
+    const snapshot = makeSnapshot({ cells: [confirmedDrawing] });
 
     const next = applyOptimisticDrawings(snapshot, optimistic);
 
@@ -34,34 +32,31 @@ describe("poster state helpers", () => {
   it("rolls back only the optimistic cell version, not a confirmed replacement", () => {
     const optimisticDrawing = makeDrawing("r1c1", { drawOrder: 0, name: "Optimistic" });
     const confirmedDrawing = makeDrawing("r1c1", { drawOrder: 5, name: "Winner" });
-    const snapshot = makeSnapshot({ cells: [confirmedDrawing], holds: [] });
+    const snapshot = makeSnapshot({ cells: [confirmedDrawing] });
 
     const next = rollbackOptimisticDrawing(snapshot, optimisticDrawing);
 
     expect(next.cells).toEqual([confirmedDrawing]);
   });
 
-  it("upserts drawings and clears matching holds", () => {
+  it("upserts drawings", () => {
     const oldDrawing = makeDrawing("r1c1", { drawOrder: 1, name: "Old" });
     const nextDrawing = makeDrawing("r1c1", { drawOrder: 2, name: "New" });
     const otherDrawing = makeDrawing("r1c2", { drawOrder: 3, name: "Other" });
     const snapshot = makeSnapshot({
       cells: [oldDrawing, otherDrawing],
-      holds: [{ cellId: "r1c1", sessionId: "s1", startedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2026-01-01T00:10:00.000Z" }],
     });
 
     const next = upsertDrawing(snapshot, nextDrawing);
 
     expect(next.cells).toEqual([otherDrawing, nextDrawing]);
-    expect(next.holds).toEqual([]);
   });
 });
 
-function makeSnapshot({ cells, holds }: Pick<PosterSnapshot, "cells" | "holds">): PosterSnapshot {
+function makeSnapshot({ cells }: Pick<PosterSnapshot, "cells">): PosterSnapshot {
   return {
     config: posterConfig,
     cells,
-    holds,
     now: "2026-01-01T00:00:00.000Z",
   };
 }

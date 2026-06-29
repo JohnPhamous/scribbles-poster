@@ -28,14 +28,6 @@ export type CellSummary = {
   updatedAt: string;
 };
 
-export type CellHold = {
-  cellId: string;
-  sessionId: string;
-  name?: string;
-  startedAt: string;
-  expiresAt: string;
-};
-
 export type PosterConfig = {
   title: string;
   posterWidthIn: number;
@@ -54,7 +46,6 @@ export type PosterConfig = {
   strokeWidth: number;
   maxReplayMs: number;
   sequentialReplayCellMs: number;
-  holdMs: number;
   exportDpi: number;
   palette: string[];
 };
@@ -62,10 +53,5 @@ export type PosterConfig = {
 export type PosterSnapshot = {
   config: PosterConfig;
   cells: CellDrawing[];
-  holds: CellHold[];
   now: string;
 };
-
-export type HoldResult =
-  | { ok: true; hold: CellHold }
-  | { ok: false; reason: "occupied" | "held" | "invalid"; hold?: CellHold };

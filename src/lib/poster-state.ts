@@ -21,7 +21,6 @@ export function applyOptimisticDrawings(
       ...snapshot.cells.filter((cell) => !optimisticDrawings.has(cell.id)),
       ...optimisticDrawings.values(),
     ],
-    holds: snapshot.holds.filter((hold) => !optimisticDrawings.has(hold.cellId)),
   };
 }
 
@@ -29,7 +28,6 @@ export function upsertDrawing(snapshot: PosterSnapshot, drawing: CellDrawing): P
   return {
     ...snapshot,
     cells: [...snapshot.cells.filter((cell) => cell.id !== drawing.id), drawing],
-    holds: snapshot.holds.filter((hold) => hold.cellId !== drawing.id),
   };
 }
 
