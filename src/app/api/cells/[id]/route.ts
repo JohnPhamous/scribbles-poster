@@ -4,6 +4,7 @@ import { deleteHold, getCell, getSessionHold, saveCell } from "@/lib/storage";
 import { validateDrawing } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
+export const preferredRegion = "sfo1";
 
 type Params = {
   params: Promise<{ id: string }>;
