@@ -31,7 +31,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Invalid cell" }, { status: 404 });
   }
 
-  const body = (await request.json()) as { sessionId?: string; drawing?: unknown };
+  const body = (await request.json()) as { sessionId?: string; holdStartedAt?: string; drawing?: unknown };
   if (!body.sessionId) {
     return NextResponse.json({ error: "Missing session" }, { status: 400 });
   }
@@ -42,8 +42,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   }
 
   const hold = await getSessionHold(id, body.sessionId);
-  const holdActive = hold && new Date(hold.expiresAt).getTime() > Date.now();
-  if (!holdActive) {
+  if (!hold) {
     return NextResponse.json({ error: "Cell hold is missing or expired", hold }, { status: 423 });
   }
 
@@ -57,6 +56,6 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
   }
 
-  await deleteHold(id, body.sessionId);
+  await deleteHold(id, body.sessionId, body.holdStartedAt);
   return NextResponse.json(savedDrawing);
 }

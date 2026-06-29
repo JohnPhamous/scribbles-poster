@@ -273,7 +273,7 @@ export function PosterApp() {
       if (current?.kind !== "edit") return;
       navigator.sendBeacon?.(
         `/api/cells/${current.cellId}/hold`,
-        new Blob([JSON.stringify({ action: "release", sessionId })], { type: "application/json" }),
+        new Blob([JSON.stringify({ action: "release", sessionId, holdStartedAt: current.hold.startedAt })], { type: "application/json" }),
       );
     };
     window.addEventListener("pagehide", release);
@@ -333,7 +333,7 @@ export function PosterApp() {
       fetch(`/api/cells/${cellId}/hold`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release", sessionId }),
+        body: JSON.stringify({ action: "release", sessionId, holdStartedAt: confirmedHold.startedAt }),
       }).catch(() => undefined);
       return;
     }
@@ -367,7 +367,7 @@ export function PosterApp() {
       fetch(`/api/cells/${selection.cellId}/hold`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release", sessionId }),
+        body: JSON.stringify({ action: "release", sessionId, holdStartedAt: selection.hold.startedAt }),
       }).catch(() => undefined);
     }
 
@@ -390,10 +390,12 @@ export function PosterApp() {
     }, cameraCleanupMs);
 
     try {
+      const currentSelection = selectedRef.current;
+      const holdStartedAt = currentSelection?.kind === "edit" && currentSelection.cellId === drawing.id ? currentSelection.hold.startedAt : undefined;
       const response = await fetch(`/api/cells/${drawing.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId, drawing }),
+        body: JSON.stringify({ sessionId, holdStartedAt, drawing }),
       });
 
       if (!response.ok) {

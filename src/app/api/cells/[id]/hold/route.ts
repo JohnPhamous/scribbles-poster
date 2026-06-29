@@ -19,6 +19,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const body = (await request.json()) as {
     action?: "acquire" | "release" | "heartbeat";
     sessionId?: string;
+    holdStartedAt?: string;
     name?: string;
   };
 
@@ -27,8 +28,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   if (body.action === "release") {
-    const hold = await getSessionHold(id, body.sessionId);
-    if (hold) await deleteHold(id, body.sessionId);
+    await deleteHold(id, body.sessionId, body.holdStartedAt);
     return NextResponse.json({ ok: true });
   }
 

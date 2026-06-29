@@ -60,6 +60,39 @@ describe("storage", () => {
     expect(blobStore.has("holds/r1c1/claim.json")).toBe(false);
   });
 
+  it("does not delete a newer hold for the same session when the hold timestamp does not match", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "token");
+    const hold = makeHold({ cellId: "r1c1", sessionId: "owner", startedAt: "2026-01-01T00:01:00.000Z" });
+    blobStore.set("holds/r1c1/claim.json", hold);
+    const { deleteHold } = await import("./storage");
+
+    await deleteHold("r1c1", "owner", "2026-01-01T00:00:00.000Z");
+
+    expect(del).not.toHaveBeenCalled();
+    expect(blobStore.get("holds/r1c1/claim.json")).toEqual(hold);
+  });
+
+  it("filters and deletes stale Blob holds when listing active holds", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "token");
+    const active = makeHold({ cellId: "r1c2", sessionId: "active" });
+    blobStore.set("holds/r1c1/claim.json", makeHold({ cellId: "r1c1", sessionId: "expired", expiresAt: "2020-01-01T00:00:00.000Z" }));
+    blobStore.set("holds/r1c2/claim.json", active);
+    const { listActiveHolds } = await import("./storage");
+
+    await expect(listActiveHolds()).resolves.toEqual([active]);
+
+    expect(del).toHaveBeenCalledWith("holds/r1c1/claim.json");
+    expect(blobStore.has("holds/r1c1/claim.json")).toBe(false);
+  });
+
+  it("treats expired session holds as missing", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "token");
+    blobStore.set("holds/r1c1/claim.json", makeHold({ cellId: "r1c1", sessionId: "owner", expiresAt: "2020-01-01T00:00:00.000Z" }));
+    const { getSessionHold } = await import("./storage");
+
+    await expect(getSessionHold("r1c1", "owner")).resolves.toBeNull();
+  });
+
   it("bypasses stale cell list cache when assigning draw order", async () => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "token");
     blobStore.set("cells/r1c1.json", makeDrawing("r1c1", 1));
@@ -102,7 +135,7 @@ function makeHold(overrides: Partial<CellHold>): CellHold {
     cellId: "r1c1",
     sessionId: "owner",
     startedAt: "2026-01-01T00:00:00.000Z",
-    expiresAt: "2026-01-01T00:10:00.000Z",
+    expiresAt: "2099-01-01T00:10:00.000Z",
     ...overrides,
   };
 }

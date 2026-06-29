@@ -173,8 +173,8 @@ export async function listActiveHolds(): Promise<CellHold[]> {
 
   await Promise.all(
     holds.map(async (hold) => {
-      if (new Date(hold.expiresAt).getTime() <= now) {
-        await deleteHold(hold.cellId, hold.sessionId);
+      if (!isHoldActive(hold, now)) {
+        await deleteHold(hold.cellId, hold.sessionId, hold.startedAt);
         return;
       }
       active.push(hold);
@@ -185,17 +185,17 @@ export async function listActiveHolds(): Promise<CellHold[]> {
 }
 
 export async function getHold(cellId: string): Promise<CellHold | null> {
-  if (!hasBlobToken) return memoryHolds.get(cellId) ?? null;
-  return getNewestHold(await listCellHolds(cellId));
+  const hold = await getStoredHold(cellId);
+  return hold && isHoldActive(hold) ? hold : null;
 }
 
 export async function getSessionHold(cellId: string, sessionId: string): Promise<CellHold | null> {
   if (!hasBlobToken) {
     const hold = memoryHolds.get(cellId) ?? null;
-    return hold?.sessionId === sessionId ? hold : null;
+    return hold?.sessionId === sessionId && isHoldActive(hold) ? hold : null;
   }
   const hold = await readJson<CellHold>(getHoldPath(cellId));
-  return hold?.sessionId === sessionId ? hold : null;
+  return hold?.sessionId === sessionId && isHoldActive(hold) ? hold : null;
 }
 
 export async function acquireHold(cellId: string, sessionId: string, name?: string) {
@@ -203,7 +203,7 @@ export async function acquireHold(cellId: string, sessionId: string, name?: stri
 
   if (!hasBlobToken) {
     const existing = memoryHolds.get(cellId);
-    const active = existing && new Date(existing.expiresAt).getTime() > Date.now();
+    const active = existing && isHoldActive(existing);
     if (active) return existing.sessionId === sessionId ? { ok: true as const, hold: existing } : { ok: false as const, reason: "held" as const, hold: existing };
     memoryHolds.set(cellId, hold);
     invalidateHoldsCache();
@@ -217,13 +217,13 @@ export async function acquireHold(cellId: string, sessionId: string, name?: stri
     if (!isBlobConflictError(error)) throw error;
   }
 
-  const existing = await getHold(cellId);
-  const active = existing && new Date(existing.expiresAt).getTime() > Date.now();
+  const existing = await getStoredHold(cellId);
+  const active = existing && isHoldActive(existing);
   if (active) {
     return existing.sessionId === sessionId ? { ok: true as const, hold: existing } : { ok: false as const, reason: "held" as const, hold: existing };
   }
 
-  await deleteHold(cellId);
+  if (existing) await deleteHold(cellId, existing.sessionId, existing.startedAt);
   try {
     await putHold(hold, false);
     return { ok: true as const, hold };
@@ -232,12 +232,17 @@ export async function acquireHold(cellId: string, sessionId: string, name?: stri
   }
 
   const nextExisting = await getHold(cellId);
-  const nextActive = nextExisting && new Date(nextExisting.expiresAt).getTime() > Date.now();
+  const nextActive = nextExisting && isHoldActive(nextExisting);
   if (nextActive) {
     return nextExisting.sessionId === sessionId ? { ok: true as const, hold: nextExisting } : { ok: false as const, reason: "held" as const, hold: nextExisting };
   }
 
   return { ok: false as const, reason: "held" as const };
+}
+
+async function getStoredHold(cellId: string): Promise<CellHold | null> {
+  if (!hasBlobToken) return memoryHolds.get(cellId) ?? null;
+  return getNewestHold(await listCellHolds(cellId));
 }
 
 export async function upsertHold(cellId: string, sessionId: string, name?: string) {
@@ -273,18 +278,18 @@ async function putHold(hold: CellHold, allowOverwrite: boolean) {
   invalidateHoldsCache();
 }
 
-export async function deleteHold(cellId: string, sessionId?: string) {
+export async function deleteHold(cellId: string, sessionId?: string, startedAt?: string) {
   if (!hasBlobToken) {
     const hold = memoryHolds.get(cellId);
-    if (!sessionId || hold?.sessionId === sessionId) memoryHolds.delete(cellId);
+    if (!sessionId || (hold?.sessionId === sessionId && (!startedAt || hold.startedAt === startedAt))) memoryHolds.delete(cellId);
     invalidateHoldsCache();
     return;
   }
 
   try {
     if (sessionId) {
-      const hold = await getSessionHold(cellId, sessionId);
-      if (!hold) return;
+      const hold = await readJson<CellHold>(getHoldPath(cellId));
+      if (hold?.sessionId !== sessionId || (startedAt && hold.startedAt !== startedAt)) return;
       await del(getHoldPath(cellId));
       invalidateHoldsCache();
       return;
@@ -347,6 +352,10 @@ async function readJson<T>(pathname: string): Promise<T | null> {
 
 function isPresent<T>(value: T | null): value is T {
   return value !== null;
+}
+
+function isHoldActive(hold: CellHold, now = Date.now()) {
+  return new Date(hold.expiresAt).getTime() > now;
 }
 
 function getHoldPath(cellId: string) {
