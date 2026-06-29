@@ -15,7 +15,7 @@ export async function GET(_: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Invalid cell" }, { status: 404 });
   }
 
-  const cell = await getCell(id);
+  const cell = await getCell(id, { retry: true });
   if (!cell) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

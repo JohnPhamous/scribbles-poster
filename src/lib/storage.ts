@@ -35,10 +35,16 @@ export async function listCells(): Promise<CellDrawing[]> {
   return drawings.filter(isPresent);
 }
 
-export async function getCell(id: string): Promise<CellDrawing | null> {
+export async function getCell(id: string, options?: { retry?: boolean }): Promise<CellDrawing | null> {
   if (!hasBlobToken) return memoryCells.get(id) ?? null;
-  const cells = await listCells();
-  return cells.find((cell) => cell.id === id) ?? null;
+  const attempts = options?.retry ? 6 : 1;
+  for (let index = 0; index < attempts; index += 1) {
+    const cells = await listCells();
+    const cell = cells.find((item) => item.id === id);
+    if (cell) return cell;
+    if (index < attempts - 1) await sleep(500);
+  }
+  return null;
 }
 
 export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occupied"> {
