@@ -983,6 +983,7 @@ function Editor({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const currentStrokeRef = useRef<Stroke | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
   const drawingStartedAtRef = useRef(performance.now());
   const strokeStartedAtRef = useRef(0);
   const [strokesVersion, setStrokesVersion] = useState(0);
@@ -1031,6 +1032,10 @@ function Editor({
   }
 
   function onPointerDown(event: PointerEvent<HTMLCanvasElement>) {
+    if (activePointerIdRef.current !== null) return;
+    if (event.pointerType !== "mouse") event.preventDefault();
+
+    activePointerIdRef.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
     const didCommitCurrentStroke = commitCurrentStroke();
     strokeStartedAtRef.current = performance.now();
@@ -1049,6 +1054,8 @@ function Editor({
   }
 
   function onPointerMove(event: PointerEvent<HTMLCanvasElement>) {
+    if (activePointerIdRef.current !== event.pointerId) return;
+    if (event.pointerType !== "mouse") event.preventDefault();
     if (!currentStrokeRef.current) return;
     const points = currentStrokeRef.current.points;
     const next = getPoint(event);
@@ -1058,7 +1065,15 @@ function Editor({
     redraw();
   }
 
-  function finishStroke() {
+  function finishStroke(event: PointerEvent<HTMLCanvasElement>) {
+    if (activePointerIdRef.current !== event.pointerId) return;
+    if (event.pointerType !== "mouse") event.preventDefault();
+    activePointerIdRef.current = null;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
     if (!commitCurrentStroke()) return;
     setStrokesVersion((value) => value + 1);
     redraw();
@@ -1075,6 +1090,7 @@ function Editor({
   function undo() {
     if (currentStrokeRef.current) {
       currentStrokeRef.current = null;
+      activePointerIdRef.current = null;
       setStrokesVersion((value) => value + 1);
       redraw();
       return;
@@ -1087,6 +1103,7 @@ function Editor({
   function clear() {
     strokesRef.current = [];
     currentStrokeRef.current = null;
+    activePointerIdRef.current = null;
     setStrokesVersion((value) => value + 1);
     redraw();
   }
