@@ -74,6 +74,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const [zoomPhase, setZoomPhase] = useState<ZoomPhase>("idle");
   const [message, setMessage] = useState("");
   const [showPrintTools, setShowPrintTools] = useState(false);
+  const [showReplayTools, setShowReplayTools] = useState(false);
   const [replayStartedAt, setReplayStartedAt] = useState<number | null>(null);
   const [replayElapsed, setReplayElapsed] = useState(0);
   const [replayMode, setReplayMode] = useState<ReplayMode>("simultaneous");
@@ -129,7 +130,9 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   }, [withOptimisticDrawings]);
 
   useEffect(() => {
-    setShowPrintTools(new URLSearchParams(window.location.search).get("print") === "1");
+    const searchParams = new URLSearchParams(window.location.search);
+    setShowPrintTools(searchParams.get("print") === "1");
+    setShowReplayTools(searchParams.get("replay") === "1");
 
     let timer = 0;
     const scheduleRefresh = () => {
@@ -401,6 +404,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const replayActive = replayStartedAt !== null || replayElapsed > 0;
   const zoomCanvasScale = selection && cameraStyle ? getZoomCanvasScale(cameraStyle.posterMotion.scale) : 1;
   const replayByCellId = replayActive && config ? getReplayByCellId(replayMode, replayElapsed, orderedDrawings, config) : new Map<string, CellReplay>();
+  const showToolbar = showReplayTools || showPrintTools || Boolean(message);
 
   return (
     <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
@@ -440,28 +444,34 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
         </motion.div>
       </section>
 
-      <div className="toolbar noPrint">
-        <button className={`iconButton ${replayMode === "simultaneous" ? "active" : ""}`} type="button" onClick={() => setReplayMode("simultaneous")}>
-          All
-        </button>
-        <button className={`iconButton ${replayMode === "sequential" ? "active" : ""}`} type="button" onClick={() => setReplayMode("sequential")}>
-          Seq
-        </button>
-        <button className="iconButton" type="button" onClick={replayActive ? stopReplay : startReplay} title={replayActive ? "Stop replay" : "Play replay"}>
-          {replayActive ? "Stop" : "Play"}
-        </button>
-        {showPrintTools ? (
-          <>
-            <button className="iconButton" type="button" onClick={() => window.print()} title="Print poster">
-              Print
-            </button>
-            <button className="iconButton" type="button" onClick={exportPng} title="Export PNG">
-              PNG
-            </button>
-          </>
-        ) : null}
-        {message ? <p className="status">{message}</p> : null}
-      </div>
+      {showToolbar ? (
+        <div className="toolbar noPrint">
+          {showReplayTools ? (
+            <>
+              <button className={`iconButton ${replayMode === "simultaneous" ? "active" : ""}`} type="button" onClick={() => setReplayMode("simultaneous")}>
+                All
+              </button>
+              <button className={`iconButton ${replayMode === "sequential" ? "active" : ""}`} type="button" onClick={() => setReplayMode("sequential")}>
+                Seq
+              </button>
+              <button className="iconButton" type="button" onClick={replayActive ? stopReplay : startReplay} title={replayActive ? "Stop replay" : "Play replay"}>
+                {replayActive ? "Stop" : "Play"}
+              </button>
+            </>
+          ) : null}
+          {showPrintTools ? (
+            <>
+              <button className="iconButton" type="button" onClick={() => window.print()} title="Print poster">
+                Print
+              </button>
+              <button className="iconButton" type="button" onClick={exportPng} title="Export PNG">
+                PNG
+              </button>
+            </>
+          ) : null}
+          {message ? <p className="status">{message}</p> : null}
+        </div>
+      ) : null}
 
       {selection ? (
         <CellOverlay
