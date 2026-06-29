@@ -33,10 +33,10 @@ export const posterConfig: PosterConfig = {
   palette: ["#E63946", "#F4A261", "#2A9D8F", "#457B9D", "#8338EC"],
 };
 
-export function getCellIds() {
-  return Array.from({ length: posterConfig.rows * posterConfig.columns }, (_, index) => {
-    const row = Math.floor(index / posterConfig.columns);
-    const col = index % posterConfig.columns;
+export function getCellIds(config: Pick<PosterConfig, "rows" | "columns"> = posterConfig) {
+  return Array.from({ length: config.rows * config.columns }, (_, index) => {
+    const row = Math.floor(index / config.columns);
+    const col = index % config.columns;
     return `r${row + 1}c${col + 1}`;
   });
 }

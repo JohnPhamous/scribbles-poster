@@ -112,13 +112,22 @@ button {
   opacity: 1;
 }
 
-.cell.held {
+.cell.held::after {
+  background: rgba(0, 0, 0, 0.07);
+  opacity: 1;
+}
+
+.cell.heldOther {
   cursor: not-allowed;
 }
 
 .cell.held:hover::after,
 .cell.held:focus-visible::after {
-  opacity: 0;
+  opacity: 1;
+}
+
+.cell.heldOwn::after {
+  background: rgba(131, 56, 236, 0.1);
 }
 
 .drawingCanvas {
@@ -141,6 +150,10 @@ button {
   z-index: 2;
   top: 50%;
   transform: translate(-50%, -50%);
+}
+
+.cell.heldOwn .cellHeld {
+  background: rgba(131, 56, 236, 0.86);
 }
 
 .toolbar {

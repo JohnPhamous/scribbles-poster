@@ -48,7 +48,6 @@ type CellReplay = {
 type PosterMotionStyle = ComponentProps<typeof motion.div>["style"];
 type ZoomPanelMotionStyle = ComponentProps<typeof motion.div>["style"];
 
-const cellIds = getCellIds();
 const cameraMs = 620;
 const cameraTransition = {
   duration: cameraMs / 1000,
@@ -120,6 +119,7 @@ export function PosterApp() {
   );
 
   const config = snapshot?.config;
+  const cellIds = useMemo(() => (config ? getCellIds(config) : []), [config]);
   const drawingsById = useMemo(() => {
     const map = new Map<string, CellDrawing>();
     for (const cell of snapshot?.cells ?? []) map.set(cell.id, cell);
@@ -511,7 +511,7 @@ export function PosterApp() {
                 hold={holdsById.get(cellId)}
                 ownSessionId={sessionId}
                 replay={replayByCellId.get(cellId) ?? null}
-                renderScale={isZoomNeighborCell(cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
+                renderScale={isZoomNeighborCell(cellIds, cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
                 onOpen={(camera) => openCell(cellId, camera)}
               />
             ))}
@@ -577,7 +577,9 @@ function PosterCell({
   renderScale: number;
   onOpen: (camera: CameraFrame) => void;
 }) {
-  const heldByOther = Boolean(hold && hold.sessionId !== ownSessionId);
+  const hasHold = Boolean(hold && !drawing);
+  const heldByOther = Boolean(hasHold && hold?.sessionId !== ownSessionId);
+  const heldByOwner = Boolean(hasHold && hold?.sessionId === ownSessionId);
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -601,13 +603,13 @@ function PosterCell({
 
   return (
     <button
-      className={`cell ${drawing ? "occupied" : ""} ${heldByOther ? "held" : ""}`}
+      className={`cell ${drawing ? "occupied" : ""} ${hasHold ? "held" : ""} ${heldByOther ? "heldOther" : ""} ${heldByOwner ? "heldOwn" : ""}`}
       type="button"
       onClick={handleClick}
-      aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : heldByOther ? " held" : " empty"}`}
+      aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : hasHold ? (heldByOwner ? " held by you" : " held") : " empty"}`}
     >
       <DrawingCanvas drawing={drawing} config={config} replay={replay} renderScale={renderScale} />
-      {heldByOther ? <span className="cellHeld">Held</span> : null}
+      {hasHold ? <span className="cellHeld">{heldByOwner ? "Yours" : "Held"}</span> : null}
     </button>
   );
 }
@@ -766,7 +768,7 @@ function drawAuthorLabel(ctx: CanvasRenderingContext2D, name: string, canvasSize
   ctx.restore();
 }
 
-function isZoomNeighborCell(cellId: string, selectedCellId: string | undefined, config: PosterConfig) {
+function isZoomNeighborCell(cellIds: string[], cellId: string, selectedCellId: string | undefined, config: PosterConfig) {
   if (!selectedCellId) return false;
   const cellIndex = cellIds.indexOf(cellId);
   const selectedIndex = cellIds.indexOf(selectedCellId);
