@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties, MouseEvent, PointerEvent } from "react";
-import { LayoutGroup, animate, motion, useMotionValue, useTransform } from "motion/react";
+import { animate, motion, useMotionValue } from "motion/react";
 import { drawStrokes, getStrokeDuration } from "@/lib/drawing";
 import { getCellIds } from "@/lib/poster-config";
 import { applyOptimisticDrawings, rollbackOptimisticDrawing, upsertDrawing } from "@/lib/poster-state";
@@ -27,7 +27,6 @@ type CameraFrame = {
 type CameraStyle = {
   poster: CSSProperties;
   target: CSSProperties;
-  targetSize: number;
   posterMotion: {
     x: number;
     y: number;
@@ -46,7 +45,6 @@ type CellReplay = {
   elapsedMs: number;
   durationMs?: number;
 };
-type CellNameMotionStyle = ComponentProps<typeof motion.span>["style"];
 type PosterMotionStyle = ComponentProps<typeof motion.div>["style"];
 type ZoomPanelMotionStyle = ComponentProps<typeof motion.div>["style"];
 
@@ -63,6 +61,8 @@ const cameraExitTransition = {
 const cameraCleanupMs = cameraMs + 120;
 const zoomCanvasNeighborRadius = 1;
 const maxZoomCanvasScale = 14;
+const authorLabelFontRatio = 0.08;
+const authorLabelMarginRatio = 0.05;
 
 function createOptimisticHold(cellId: string, sessionId: string, holdMs: number): CellHold {
   const now = new Date();
@@ -96,14 +96,6 @@ export function PosterApp() {
   const panelX = useMotionValue(0);
   const panelY = useMotionValue(0);
   const panelScale = useMotionValue(1);
-  const selectedCellWidth = selection?.camera.cell.width ?? 0;
-  const cellNameScale = useTransform(posterScale, (value) => 1 / value);
-  const cellNameX = useTransform(posterScale, (value) => 6 / value - 6);
-  const cellNameY = useTransform(posterScale, (value) => 4 - 4 / value);
-  const cellNameWidth = useTransform(posterScale, (value) => {
-    if (selectedCellWidth <= 0) return "calc(100% - 12px)";
-    return `${Math.max(0, selectedCellWidth * value - 12)}px`;
-  });
   const posterMotionStyle = useMemo(
     () =>
       ({
@@ -112,35 +104,6 @@ export function PosterApp() {
         scale: posterScale,
       }) satisfies PosterMotionStyle,
     [posterScale, posterX, posterY],
-  );
-  const cellNameStyle = useMemo(
-    () =>
-      ({
-        maxWidth: cellNameWidth,
-        scale: cellNameScale,
-        width: cellNameWidth,
-        x: cellNameX,
-        y: cellNameY,
-      }) satisfies CellNameMotionStyle,
-    [cellNameScale, cellNameWidth, cellNameX, cellNameY],
-  );
-  const detailNameScale = useTransform(panelScale, (value) => 1 / Math.max(0.001, value));
-  const detailNameX = useTransform(panelScale, (value) => 6 / Math.max(0.001, value) - 6);
-  const detailNameY = useTransform(panelScale, (value) => 4 - 4 / Math.max(0.001, value));
-  const detailNameWidth = useTransform(panelScale, (value) => {
-    if (!cameraStyle) return "calc(100% - 12px)";
-    return `${Math.max(0, cameraStyle.targetSize * value - 12)}px`;
-  });
-  const detailNameStyle = useMemo(
-    () =>
-      ({
-        maxWidth: detailNameWidth,
-        scale: detailNameScale,
-        width: detailNameWidth,
-        x: detailNameX,
-        y: detailNameY,
-      }) satisfies CellNameMotionStyle,
-    [detailNameScale, detailNameWidth, detailNameX, detailNameY],
   );
   const zoomPanelMotionStyle = useMemo(
     () =>
@@ -466,12 +429,8 @@ export function PosterApp() {
       ctx.translate(x, y);
       ctx.scale(cellPx / config.canvasSize, cellPx / config.canvasSize);
       drawStrokes(ctx, drawing.strokes, config.canvasSize);
+      drawAuthorLabel(ctx, drawing.name, config.canvasSize);
       ctx.restore();
-      ctx.fillStyle = "#9a9a9a";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
-      ctx.font = `${Math.round(0.18 * scale)}px Arial, sans-serif`;
-      ctx.fillText(drawing.name, x + 0.12 * scale, y + cellPx - 0.12 * scale, cellPx - 0.24 * scale);
     }
 
     const link = document.createElement("a");
@@ -488,89 +447,81 @@ export function PosterApp() {
   const zoomCanvasScale = selection && cameraStyle ? getZoomCanvasScale(cameraStyle.posterMotion.scale) : 1;
   const replayByCellId = replayActive && config ? getReplayByCellId(replayMode, replayElapsed, orderedDrawings, config) : new Map<string, CellReplay>();
 
-  const selectedAuthorLayoutId = selection?.kind === "view" ? `author-label-${selection.cellId}` : undefined;
-
   return (
-    <LayoutGroup id="poster-author-labels">
-      <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
-        <section className="stage" aria-label="Collaborative poster">
-          <motion.div
-            className="poster"
-            style={
-              {
-                "--poster-width": config.posterWidthIn,
-                "--poster-height": config.posterHeightIn,
-                "--title-height": config.titleHeightIn,
-                "--columns": config.columns,
-                "--rows": config.rows,
-                "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
-                "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
-                ...posterMotionStyle,
-                ...cameraStyle?.poster,
-              } as PosterMotionStyle
-            }
-            initial={false}
-          >
-            <header className="posterTitle">{config.title}</header>
-            <div className="posterGrid">
-              {cellIds.map((cellId) => (
-                <PosterCell
-                  key={cellId}
-                  cellId={cellId}
-                  config={config}
-                  drawing={drawingsById.get(cellId)}
-                  hold={holdsById.get(cellId)}
-                  ownSessionId={sessionId}
-                  replay={replayByCellId.get(cellId) ?? null}
-                  renderScale={isZoomNeighborCell(cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
-                  cellNameStyle={cellNameStyle}
-                  authorLayoutId={selectedAuthorLayoutId && selection?.cellId === cellId ? selectedAuthorLayoutId : undefined}
-                  onOpen={(camera) => openCell(cellId, camera)}
-                />
-              ))}
-            </div>
-          </motion.div>
-        </section>
+    <main className={`app ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
+      <section className="stage" aria-label="Collaborative poster">
+        <motion.div
+          className="poster"
+          style={
+            {
+              "--poster-width": config.posterWidthIn,
+              "--poster-height": config.posterHeightIn,
+              "--title-height": config.titleHeightIn,
+              "--columns": config.columns,
+              "--rows": config.rows,
+              "--grid-width-percent": `${(config.gridWidthIn / config.posterWidthIn) * 100}%`,
+              "--grid-height-percent": `${(config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn)) * 100}%`,
+              ...posterMotionStyle,
+              ...cameraStyle?.poster,
+            } as PosterMotionStyle
+          }
+          initial={false}
+        >
+          <header className="posterTitle">{config.title}</header>
+          <div className="posterGrid">
+            {cellIds.map((cellId) => (
+              <PosterCell
+                key={cellId}
+                cellId={cellId}
+                config={config}
+                drawing={drawingsById.get(cellId)}
+                hold={holdsById.get(cellId)}
+                ownSessionId={sessionId}
+                replay={replayByCellId.get(cellId) ?? null}
+                renderScale={isZoomNeighborCell(cellId, selection?.cellId, config) ? zoomCanvasScale : 1}
+                onOpen={(camera) => openCell(cellId, camera)}
+              />
+            ))}
+          </div>
+        </motion.div>
+      </section>
 
-        <div className="toolbar noPrint">
-          <button className={`iconButton ${replayMode === "simultaneous" ? "active" : ""}`} type="button" onClick={() => setReplayMode("simultaneous")}>
-            All
-          </button>
-          <button className={`iconButton ${replayMode === "sequential" ? "active" : ""}`} type="button" onClick={() => setReplayMode("sequential")}>
-            Seq
-          </button>
-          <button className="iconButton" type="button" onClick={replayActive ? stopReplay : startReplay} title={replayActive ? "Stop replay" : "Play replay"}>
-            {replayActive ? "Stop" : "Play"}
-          </button>
-          {showPrintTools ? (
-            <>
-              <button className="iconButton" type="button" onClick={() => window.print()} title="Print poster">
-                Print
-              </button>
-              <button className="iconButton" type="button" onClick={exportPng} title="Export PNG">
-                PNG
-              </button>
-            </>
-          ) : null}
-          {message ? <p className="status">{message}</p> : null}
-        </div>
-
-        {selection ? (
-          <CellOverlay
-            selection={selection}
-            config={config}
-            sessionId={sessionId}
-            isSaving={isSaving}
-            phase={zoomPhase}
-            style={zoomPanelMotionStyle}
-            detailNameStyle={detailNameStyle}
-            authorLayoutId={selectedAuthorLayoutId}
-            onClose={closeSelection}
-            onSave={saveDrawing}
-          />
+      <div className="toolbar noPrint">
+        <button className={`iconButton ${replayMode === "simultaneous" ? "active" : ""}`} type="button" onClick={() => setReplayMode("simultaneous")}>
+          All
+        </button>
+        <button className={`iconButton ${replayMode === "sequential" ? "active" : ""}`} type="button" onClick={() => setReplayMode("sequential")}>
+          Seq
+        </button>
+        <button className="iconButton" type="button" onClick={replayActive ? stopReplay : startReplay} title={replayActive ? "Stop replay" : "Play replay"}>
+          {replayActive ? "Stop" : "Play"}
+        </button>
+        {showPrintTools ? (
+          <>
+            <button className="iconButton" type="button" onClick={() => window.print()} title="Print poster">
+              Print
+            </button>
+            <button className="iconButton" type="button" onClick={exportPng} title="Export PNG">
+              PNG
+            </button>
+          </>
         ) : null}
-      </main>
-    </LayoutGroup>
+        {message ? <p className="status">{message}</p> : null}
+      </div>
+
+      {selection ? (
+        <CellOverlay
+          selection={selection}
+          config={config}
+          sessionId={sessionId}
+          isSaving={isSaving}
+          phase={zoomPhase}
+          style={zoomPanelMotionStyle}
+          onClose={closeSelection}
+          onSave={saveDrawing}
+        />
+      ) : null}
+    </main>
   );
 }
 
@@ -582,8 +533,6 @@ function PosterCell({
   ownSessionId,
   replay,
   renderScale,
-  cellNameStyle,
-  authorLayoutId,
   onOpen,
 }: {
   cellId: string;
@@ -593,8 +542,6 @@ function PosterCell({
   ownSessionId: string;
   replay: CellReplay | null;
   renderScale: number;
-  cellNameStyle: CellNameMotionStyle;
-  authorLayoutId?: string;
   onOpen: (camera: CameraFrame) => void;
 }) {
   const heldByOther = Boolean(hold && hold.sessionId !== ownSessionId);
@@ -627,11 +574,6 @@ function PosterCell({
       aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : heldByOther ? " held" : " empty"}`}
     >
       <DrawingCanvas drawing={drawing} config={config} replay={replay} renderScale={renderScale} />
-      {drawing ? (
-        <motion.span className="cellName" layoutId={authorLayoutId} style={cellNameStyle} transition={cameraTransition}>
-          {drawing.name}
-        </motion.span>
-      ) : null}
       {heldByOther ? <span className="cellHeld">Held</span> : null}
     </button>
   );
@@ -667,14 +609,17 @@ function DrawingCanvas({
 
       if (replay === null) {
         drawStrokes(ctx, drawing.strokes, config.canvasSize);
+        drawAuthorLabel(ctx, drawing.name, config.canvasSize);
         return;
       }
 
-      if (replay.elapsedMs <= 0) return;
-      const sourceDuration = getStrokeDuration(drawing.strokes);
-      const replayDuration = replay.durationMs ?? Math.min(sourceDuration, config.maxReplayMs);
-      const untilMs = replayDuration <= 0 ? sourceDuration : Math.min(sourceDuration, (replay.elapsedMs / replayDuration) * sourceDuration);
-      drawStrokes(ctx, drawing.strokes, config.canvasSize, { untilMs });
+      if (replay.elapsedMs > 0) {
+        const sourceDuration = getStrokeDuration(drawing.strokes);
+        const replayDuration = replay.durationMs ?? Math.min(sourceDuration, config.maxReplayMs);
+        const untilMs = replayDuration <= 0 ? sourceDuration : Math.min(sourceDuration, (replay.elapsedMs / replayDuration) * sourceDuration);
+        drawStrokes(ctx, drawing.strokes, config.canvasSize, { untilMs });
+      }
+      drawAuthorLabel(ctx, drawing.name, config.canvasSize);
     };
 
     render();
@@ -692,8 +637,6 @@ function CellOverlay({
   isSaving,
   phase,
   style,
-  detailNameStyle,
-  authorLayoutId,
   onClose,
   onSave,
 }: {
@@ -703,8 +646,6 @@ function CellOverlay({
   isSaving: boolean;
   phase: "enter" | "idle" | "exit";
   style: ZoomPanelMotionStyle;
-  detailNameStyle: CellNameMotionStyle;
-  authorLayoutId?: string;
   onClose: () => void;
   onSave: (drawing: CellDrawing) => void;
 }) {
@@ -715,13 +656,7 @@ function CellOverlay({
         style={style}
       >
         {selection.kind === "view" ? (
-          <ReadOnlyCell
-            drawing={selection.drawing}
-            config={config}
-            detailNameStyle={detailNameStyle}
-            authorLayoutId={authorLayoutId}
-            onClose={onClose}
-          />
+          <ReadOnlyCell drawing={selection.drawing} config={config} onClose={onClose} />
         ) : (
           <Editor cellId={selection.cellId} hold={selection.hold} config={config} sessionId={sessionId} isSaving={isSaving} onClose={onClose} onSave={onSave} />
         )}
@@ -761,7 +696,6 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
       "--zoom-to-y": `${targetTop}px`,
       "--zoom-to-size": `${targetSize}px`,
     } as CSSProperties,
-    targetSize,
     posterMotion: {
       x: targetLeft - camera.poster.x - cellOffsetX * scale,
       y: targetTop - camera.poster.y - cellOffsetY * scale,
@@ -778,6 +712,17 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
 
 function getZoomCanvasScale(cameraScale: number) {
   return Math.max(1, Math.min(maxZoomCanvasScale, Math.ceil(cameraScale)));
+}
+
+function drawAuthorLabel(ctx: CanvasRenderingContext2D, name: string, canvasSize: number) {
+  const margin = canvasSize * authorLabelMarginRatio;
+  ctx.save();
+  ctx.fillStyle = "#9a9a9a";
+  ctx.font = `600 ${Math.round(canvasSize * authorLabelFontRatio)}px Arial, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(name, margin, canvasSize - margin, canvasSize - margin * 2);
+  ctx.restore();
 }
 
 function isZoomNeighborCell(cellId: string, selectedCellId: string | undefined, config: PosterConfig) {
@@ -838,26 +783,11 @@ function getReplayByCellId(mode: ReplayMode, elapsedMs: number, drawings: CellDr
   return map;
 }
 
-function ReadOnlyCell({
-  drawing,
-  config,
-  detailNameStyle,
-  authorLayoutId,
-  onClose,
-}: {
-  drawing: CellDrawing;
-  config: PosterConfig;
-  detailNameStyle: CellNameMotionStyle;
-  authorLayoutId?: string;
-  onClose: () => void;
-}) {
+function ReadOnlyCell({ drawing, config, onClose }: { drawing: CellDrawing; config: PosterConfig; onClose: () => void }) {
   return (
     <>
       <div className="editorCanvasWrap readOnly">
         <DrawingCanvas drawing={drawing} config={config} replay={null} />
-        <motion.span className="detailName" layoutId={authorLayoutId} style={detailNameStyle} transition={cameraTransition}>
-          {drawing.name}
-        </motion.span>
       </div>
       <div className="editorControls">
         <p className="status">Read-only saved cell.</p>

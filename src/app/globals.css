@@ -114,24 +114,6 @@ button {
   width: 100%;
 }
 
-.cellName,
-.detailName {
-  bottom: 4px;
-  color: #9a9a9a;
-  display: block;
-  font-size: clamp(8px, 1.05vw, 14px);
-  left: 6px;
-  line-height: 1.1;
-  max-width: calc(100% - 12px);
-  overflow: hidden;
-  pointer-events: none;
-  position: absolute;
-  text-align: left;
-  text-overflow: ellipsis;
-  transform-origin: left bottom;
-  white-space: nowrap;
-}
-
 .cellHeld {
   background: rgba(0, 0, 0, 0.76);
   color: #fff;
@@ -383,11 +365,5 @@ button {
 
   .posterTitle {
     font-size: 0.9in;
-  }
-
-  .cellName {
-    bottom: 0.08in;
-    font-size: 0.14in;
-    left: 0.1in;
   }
 }
