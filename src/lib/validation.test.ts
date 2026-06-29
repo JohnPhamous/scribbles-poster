@@ -47,6 +47,7 @@ describe("validateDrawing", () => {
 
   it("rejects invalid ids, colors, bounds, and empty strokes", () => {
     expect(validateDrawing({ id: "r1c2", name: "Ada", strokes: [] }, "r1c1")).toBeNull();
+    expect(validateDrawing({ id: "r1c1", name: "   ", strokes: [makeStroke()] }, "r1c1")).toBeNull();
     expect(validateDrawing({ id: "r1c1", name: "Ada", strokes: [makeStroke({ color: "#000" })] }, "r1c1")).toBeNull();
     expect(validateDrawing({ id: "r1c1", name: "Ada", strokes: [makeStroke({ points: [{ x: -1, y: 0, t: 0 }] })] }, "r1c1")).toBeNull();
     expect(validateDrawing({ id: "r1c1", name: "Ada", strokes: [makeStroke({ points: [] })] }, "r1c1")).toBeNull();

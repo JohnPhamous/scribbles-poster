@@ -9,6 +9,8 @@ export function validateDrawing(value: unknown, id: string): CellDrawing | null 
   const candidate = value as Partial<CellDrawing>;
   if (candidate.id !== id) return null;
   if (typeof candidate.name !== "string") return null;
+  const name = candidate.name.trim();
+  if (!name) return null;
   if (!Array.isArray(candidate.strokes)) return null;
   if (candidate.strokes.length > maxStrokes) return null;
 
@@ -56,7 +58,7 @@ export function validateDrawing(value: unknown, id: string): CellDrawing | null 
   return {
     id,
     drawOrder: 0,
-    name: candidate.name.trim() || "Anonymous",
+    name,
     strokes,
     createdAt: now,
     updatedAt: now,

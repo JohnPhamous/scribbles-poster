@@ -988,7 +988,6 @@ function Editor({
   const [strokesVersion, setStrokesVersion] = useState(0);
   const [color, setColor] = useState(config.palette[0]);
   const [name, setName] = useState("");
-  const [msLeft, setMsLeft] = useState(() => new Date(hold.expiresAt).getTime() - Date.now());
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1018,13 +1017,6 @@ function Editor({
       window.removeEventListener("resize", resize);
     };
   }, [redraw]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setMsLeft(new Date(hold.expiresAt).getTime() - Date.now());
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [hold.expiresAt]);
 
   function getPoint(event: PointerEvent<HTMLCanvasElement>): Point {
     const canvas = event.currentTarget;
@@ -1100,6 +1092,9 @@ function Editor({
   }
 
   function save() {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
     const didCommitCurrentStroke = commitCurrentStroke();
     if (didCommitCurrentStroke) {
       setStrokesVersion((value) => value + 1);
@@ -1109,7 +1104,7 @@ function Editor({
       {
         id: cellId,
         drawOrder: 0,
-        name: name.trim() || "Anonymous",
+        name: trimmedName,
         strokes: strokesRef.current,
         createdAt: now,
         updatedAt: now,
@@ -1118,8 +1113,8 @@ function Editor({
     );
   }
 
-  const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
   const hasStrokeContent = strokesRef.current.length > 0 || currentStrokeRef.current !== null;
+  const hasName = name.trim().length > 0;
 
   return (
     <>
@@ -1147,8 +1142,7 @@ function Editor({
             />
           ))}
         </div>
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" aria-label="Your name" />
-        <span className="timer">{formatTime(secondsLeft)}</span>
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" aria-label="Your name" required />
         <button type="button" onClick={undo} disabled={!hasStrokeContent || isSaving}>
           Undo
         </button>
@@ -1158,17 +1152,11 @@ function Editor({
         <button type="button" onClick={onClose} disabled={isSaving}>
           Cancel
         </button>
-        <button type="button" onClick={save} disabled={isClaiming || isSaving || !hasStrokeContent} data-primary>
+        <button type="button" onClick={save} disabled={isClaiming || isSaving || !hasStrokeContent || !hasName} data-primary>
           {isSaving ? "Saving" : isClaiming ? "Claiming" : "Save"}
         </button>
         <span className="srOnly">{strokesVersion}</span>
       </div>
     </>
   );
-}
-
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
