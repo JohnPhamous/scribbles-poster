@@ -623,7 +623,39 @@ function DrawingCanvas({
     };
   }, [config, drawing, replay, renderScale]);
 
-  return <canvas ref={canvasRef} className="drawingCanvas" />;
+  return (
+    <>
+      {drawing ? <DrawingPreviewSvg drawing={drawing} config={config} /> : null}
+      <canvas ref={canvasRef} className="drawingCanvas" />
+    </>
+  );
+}
+
+function DrawingPreviewSvg({ drawing, config }: { drawing: CellDrawing; config: PosterConfig }) {
+  return (
+    <svg className="drawingPreviewSvg" viewBox={`0 0 ${config.canvasSize} ${config.canvasSize}`} aria-hidden="true">
+      {getOrderedStrokes(drawing.strokes).map((stroke) => (
+        <path
+          key={stroke.id}
+          d={getStrokePathData(stroke)}
+          fill="none"
+          stroke={stroke.color}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={stroke.width}
+        />
+      ))}
+      <text
+        className="drawingPreviewAuthor"
+        x={config.canvasSize * authorLabelMarginRatio}
+        y={config.canvasSize * (1 - authorLabelMarginRatio)}
+        fill="#9a9a9a"
+        fontSize={Math.round(config.canvasSize * authorLabelFontRatio)}
+      >
+        {drawing.name}
+      </text>
+    </svg>
+  );
 }
 
 function CellOverlay({
@@ -783,6 +815,45 @@ function getZoomCanvasScale(cameraScale: number) {
 
 function getTitleFontFamily() {
   return getComputedStyle(document.querySelector(".posterTitle") ?? document.body).fontFamily || authorLabelFallbackFontFamily;
+}
+
+function getOrderedStrokes(strokes: Stroke[]) {
+  return strokes
+    .map((stroke, index) => ({ stroke, index }))
+    .sort((a, b) => {
+      const orderA = Number.isFinite(a.stroke.order) && a.stroke.order >= 0 ? a.stroke.order : a.index;
+      const orderB = Number.isFinite(b.stroke.order) && b.stroke.order >= 0 ? b.stroke.order : b.index;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.index - b.index;
+    })
+    .map(({ stroke }) => stroke);
+}
+
+function getStrokePathData(stroke: Stroke) {
+  const [firstPoint, ...restPoints] = stroke.points;
+  if (!firstPoint) return "";
+
+  const commands = [`M ${formatSvgNumber(firstPoint.x)} ${formatSvgNumber(firstPoint.y)}`];
+  if (restPoints.length === 0) {
+    commands.push(`L ${formatSvgNumber(firstPoint.x + 0.1)} ${formatSvgNumber(firstPoint.y + 0.1)}`);
+    return commands.join(" ");
+  }
+
+  let previous = firstPoint;
+  for (const point of restPoints) {
+    const midX = (previous.x + point.x) / 2;
+    const midY = (previous.y + point.y) / 2;
+    commands.push(
+      `Q ${formatSvgNumber(previous.x)} ${formatSvgNumber(previous.y)} ${formatSvgNumber(midX)} ${formatSvgNumber(midY)}`,
+    );
+    previous = point;
+  }
+
+  return commands.join(" ");
+}
+
+function formatSvgNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function drawAuthorLabel(ctx: CanvasRenderingContext2D, name: string, canvasSize: number, fontFamily = authorLabelFallbackFontFamily) {
