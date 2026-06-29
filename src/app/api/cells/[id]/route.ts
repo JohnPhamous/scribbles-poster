@@ -50,11 +50,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Invalid drawing" }, { status: 400 });
   }
 
-  const result = await saveCell(drawing);
-  if (result === "occupied") {
+  const savedDrawing = await saveCell(drawing);
+  if (savedDrawing === "occupied") {
     return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
   }
 
   await deleteHold(id);
-  return NextResponse.json(drawing);
+  return NextResponse.json(savedDrawing);
 }

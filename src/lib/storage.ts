@@ -4,10 +4,20 @@ import type { CellDrawing, CellHold } from "./types";
 
 const cellPrefix = "cells/";
 const holdPrefix = "holds/";
+const lockPrefix = "locks/";
+const drawOrderLockPath = `${lockPrefix}draw-order.json`;
+const drawOrderLockTtlMs = 8_000;
+const drawOrderLockWaitMs = 6_000;
+const drawOrderLockRetryMs = 120;
 const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
 const memoryCells = new Map<string, CellDrawing>();
 const memoryHolds = new Map<string, CellHold>();
+
+type BlobLock = {
+  token: string;
+  expiresAt: string;
+};
 
 export async function listCells(): Promise<CellDrawing[]> {
   if (!hasBlobToken) {
@@ -29,34 +39,104 @@ export async function getCell(id: string): Promise<CellDrawing | null> {
   return readBlobByPath<CellDrawing>(`${cellPrefix}${id}.json`);
 }
 
-export async function saveCell(drawing: CellDrawing): Promise<"saved" | "occupied"> {
-  const existing = await getCell(drawing.id);
-  if (existing) return "occupied";
-  const nextDrawing = {
-    ...drawing,
-    drawOrder: await getNextDrawOrder(),
-  };
-
+export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occupied"> {
   if (!hasBlobToken) {
+    const existing = await getCell(drawing.id);
+    if (existing) return "occupied";
+    const nextDrawing = {
+      ...drawing,
+      drawOrder: await getNextDrawOrder(),
+    };
     memoryCells.set(drawing.id, nextDrawing);
     memoryHolds.delete(drawing.id);
-    return "saved";
+    return nextDrawing;
   }
 
-  try {
-    await put(`${cellPrefix}${drawing.id}.json`, JSON.stringify(nextDrawing), {
-      access: "public",
-      contentType: "application/json",
-      allowOverwrite: false,
-    });
-  } catch (error) {
-    if (error instanceof Error && /already exists|overwrite|conflict/i.test(error.message)) {
-      return "occupied";
+  return withDrawOrderLock(async () => {
+    const existing = await getCell(drawing.id);
+    if (existing) return "occupied";
+    const nextDrawing = {
+      ...drawing,
+      drawOrder: await getNextDrawOrder(),
+    };
+
+    try {
+      await put(`${cellPrefix}${drawing.id}.json`, JSON.stringify(nextDrawing), {
+        access: "public",
+        contentType: "application/json",
+        allowOverwrite: false,
+      });
+    } catch (error) {
+      if (isBlobConflictError(error)) {
+        return "occupied";
+      }
+      throw error;
     }
-    throw error;
+    await deleteHold(drawing.id);
+    return nextDrawing;
+  });
+}
+
+async function withDrawOrderLock<T>(callback: () => Promise<T>) {
+  const token = crypto.randomUUID();
+  const deadline = Date.now() + drawOrderLockWaitMs;
+
+  while (Date.now() < deadline) {
+    await deleteExpiredDrawOrderLock();
+
+    try {
+      await put(
+        drawOrderLockPath,
+        JSON.stringify({
+          token,
+          expiresAt: new Date(Date.now() + drawOrderLockTtlMs).toISOString(),
+        } satisfies BlobLock),
+        {
+          access: "public",
+          contentType: "application/json",
+          allowOverwrite: false,
+        },
+      );
+      try {
+        return await callback();
+      } finally {
+        await releaseDrawOrderLock(token);
+      }
+    } catch (error) {
+      if (!isBlobConflictError(error)) throw error;
+      await sleep(drawOrderLockRetryMs + Math.random() * drawOrderLockRetryMs);
+    }
   }
-  await deleteHold(drawing.id);
-  return "saved";
+
+  throw new Error("Timed out acquiring draw order lock");
+}
+
+async function deleteExpiredDrawOrderLock() {
+  const lock = await readBlobByPath<BlobLock>(drawOrderLockPath);
+  if (!lock || new Date(lock.expiresAt).getTime() > Date.now()) return;
+  try {
+    await del(drawOrderLockPath);
+  } catch {
+    // A concurrent request may have already cleared it.
+  }
+}
+
+async function releaseDrawOrderLock(token: string) {
+  const lock = await readBlobByPath<BlobLock>(drawOrderLockPath);
+  if (lock?.token !== token) return;
+  try {
+    await del(drawOrderLockPath);
+  } catch {
+    // The TTL cleanup path can handle a missed release.
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isBlobConflictError(error: unknown) {
+  return error instanceof Error && /already exists|overwrite|conflict/i.test(error.message);
 }
 
 export async function listActiveHolds(): Promise<CellHold[]> {

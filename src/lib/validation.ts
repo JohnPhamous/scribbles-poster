@@ -53,7 +53,7 @@ export function validateDrawing(value: unknown, id: string): CellDrawing | null 
     drawOrder: 0,
     name: candidate.name.trim() || "Anonymous",
     strokes,
-    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : now,
+    createdAt: now,
     updatedAt: now,
   };
 }
