@@ -213,10 +213,7 @@ async function listHolds() {
 }
 
 async function readBlobByPath<T>(path: string): Promise<T | null> {
-  const blobs = await list({ prefix: path, limit: 1 });
-  const blob = blobs.blobs.find((item) => item.pathname === path);
-  if (!blob) return null;
-  return readJson<T>(blob.pathname);
+  return readJson<T>(path);
 }
 
 async function readJson<T>(pathname: string): Promise<T | null> {
