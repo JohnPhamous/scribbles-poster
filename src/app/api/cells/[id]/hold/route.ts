@@ -39,12 +39,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: false, reason: "invalid" }, { status: 410 });
   }
 
-  const [cell, acquireResult] = await Promise.all([getCellFast(id), acquireHold(id, body.sessionId, body.name)]);
+  const cell = await getCellFast(id);
   if (cell) {
-    if (acquireResult.ok) await deleteHold(id, body.sessionId);
     return NextResponse.json({ ok: false, reason: "occupied" }, { status: 409 });
   }
 
+  const acquireResult = await acquireHold(id, body.sessionId, body.name);
   if (!acquireResult.ok) {
     return NextResponse.json({ ok: false, reason: acquireResult.reason, hold: acquireResult.hold }, { status: 423 });
   }

@@ -292,8 +292,8 @@ export function PosterApp() {
     }
 
     const hold = holdsById.get(cellId);
-    if (hold && hold.sessionId !== sessionId) {
-      setMessage("That cell is currently held by someone else.");
+    if (hold) {
+      setMessage(hold.sessionId === sessionId ? "That cell is already held." : "That cell is currently held by someone else.");
       return;
     }
 
@@ -582,6 +582,7 @@ function PosterCell({
   const heldByOwner = Boolean(hasHold && hold?.sessionId === ownSessionId);
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
+    if (hasHold) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const poster = event.currentTarget.closest(".poster")?.getBoundingClientRect();
     if (!poster) return;
@@ -605,6 +606,7 @@ function PosterCell({
     <button
       className={`cell ${drawing ? "occupied" : ""} ${hasHold ? "held" : ""} ${heldByOther ? "heldOther" : ""} ${heldByOwner ? "heldOwn" : ""}`}
       type="button"
+      disabled={hasHold}
       onClick={handleClick}
       aria-label={`${cellId}${drawing ? ` by ${drawing.name}` : hasHold ? (heldByOwner ? " held by you" : " held") : " empty"}`}
     >

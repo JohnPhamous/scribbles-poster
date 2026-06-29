@@ -117,7 +117,7 @@ button {
   opacity: 1;
 }
 
-.cell.heldOther {
+.cell.held {
   cursor: not-allowed;
 }
 

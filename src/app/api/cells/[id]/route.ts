@@ -32,8 +32,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
   }
 
   const body = (await request.json()) as { sessionId?: string; holdStartedAt?: string; drawing?: unknown };
-  if (!body.sessionId) {
-    return NextResponse.json({ error: "Missing session" }, { status: 400 });
+  if (!body.sessionId || !body.holdStartedAt) {
+    return NextResponse.json({ error: "Missing hold" }, { status: 400 });
   }
 
   const existing = await getCell(id);
@@ -41,7 +41,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
   }
 
-  const hold = await getSessionHold(id, body.sessionId);
+  const hold = await getSessionHold(id, body.sessionId, body.holdStartedAt);
   if (!hold) {
     return NextResponse.json({ error: "Cell hold is missing or expired", hold }, { status: 423 });
   }

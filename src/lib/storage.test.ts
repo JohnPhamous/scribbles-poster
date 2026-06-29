@@ -93,6 +93,14 @@ describe("storage", () => {
     await expect(getSessionHold("r1c1", "owner")).resolves.toBeNull();
   });
 
+  it("treats same-session holds with a different timestamp as missing", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "token");
+    blobStore.set("holds/r1c1/claim.json", makeHold({ cellId: "r1c1", sessionId: "owner", startedAt: "2026-01-01T00:01:00.000Z" }));
+    const { getSessionHold } = await import("./storage");
+
+    await expect(getSessionHold("r1c1", "owner", "2026-01-01T00:00:00.000Z")).resolves.toBeNull();
+  });
+
   it("bypasses stale cell list cache when assigning draw order", async () => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "token");
     blobStore.set("cells/r1c1.json", makeDrawing("r1c1", 1));

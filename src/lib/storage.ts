@@ -189,13 +189,13 @@ export async function getHold(cellId: string): Promise<CellHold | null> {
   return hold && isHoldActive(hold) ? hold : null;
 }
 
-export async function getSessionHold(cellId: string, sessionId: string): Promise<CellHold | null> {
+export async function getSessionHold(cellId: string, sessionId: string, startedAt?: string): Promise<CellHold | null> {
   if (!hasBlobToken) {
     const hold = memoryHolds.get(cellId) ?? null;
-    return hold?.sessionId === sessionId && isHoldActive(hold) ? hold : null;
+    return isMatchingActiveHold(hold, sessionId, startedAt) ? hold : null;
   }
   const hold = await readJson<CellHold>(getHoldPath(cellId));
-  return hold?.sessionId === sessionId && isHoldActive(hold) ? hold : null;
+  return isMatchingActiveHold(hold, sessionId, startedAt) ? hold : null;
 }
 
 export async function acquireHold(cellId: string, sessionId: string, name?: string) {
@@ -356,6 +356,10 @@ function isPresent<T>(value: T | null): value is T {
 
 function isHoldActive(hold: CellHold, now = Date.now()) {
   return new Date(hold.expiresAt).getTime() > now;
+}
+
+function isMatchingActiveHold(hold: CellHold | null, sessionId: string, startedAt?: string) {
+  return Boolean(hold?.sessionId === sessionId && (!startedAt || hold.startedAt === startedAt) && isHoldActive(hold));
 }
 
 function getHoldPath(cellId: string) {
