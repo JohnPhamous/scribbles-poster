@@ -22,6 +22,7 @@ type ZoomRect = {
 };
 
 type CameraFrame = {
+  cellId: string;
   cell: ZoomRect;
   poster: ZoomRect;
 };
@@ -247,7 +248,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       if (!targetId) return;
 
       const drawing = drawingsById.get(targetId);
-      const camera = getCameraForCell(targetId, selection.camera, config, cellIds);
+      const camera = getCameraForCell(targetId, selection.cellId, selection.camera, config, cellIds);
       if (!drawing || !camera) return;
 
       setMessage("");
@@ -589,6 +590,7 @@ function PosterCell({
     const poster = event.currentTarget.closest(".poster")?.getBoundingClientRect();
     if (!poster) return;
     onOpen({
+      cellId,
       cell: {
         x: rect.left,
         y: rect.top,
@@ -818,6 +820,7 @@ function VectorZoomLayer({
 
     const cellCamera = getCameraForCell(
       drawing.id,
+      selection.cellId,
       selection.camera,
       config,
       cellIds,
@@ -846,28 +849,58 @@ function VectorZoomLayer({
     const panFrom = isPan
       ? getPanelTransformFromCamera(drawing.id, target, panSourceCamera, panSourceCameraStyle, config, cellIds)
       : null;
-    return [{ drawing, target, from: exitFrom ?? panFrom ?? from }];
+    return [{ drawing, final, target, from: exitFrom ?? panFrom ?? from, isExit }];
   });
 
   return (
     <>
-      {panels.map(({ drawing, target, from }) => (
-        <motion.div
-          key={`${drawing.id}-${phase === "pan" ? selection.cellId : phase}`}
-          aria-hidden="true"
-          className="viewZoomPanel"
-          initial={phase === "enter" || phase === "pan" || phase === "exit" ? from : false}
-          animate={{ x: 0, y: 0, scale: 1 }}
-          transition={phase === "exit" ? cameraExitTransition : cameraTransition}
-          style={{
-            left: target.x,
-            top: target.y,
-            width: target.width,
-          }}
-        >
-          <DrawingPreviewSvg drawing={drawing} config={config} />
-        </motion.div>
-      ))}
+      {panels.map(({ drawing, final, target, from, isExit }) => {
+        const motionProps = isExit
+          ? {
+              initial: {
+                left: final.x,
+                top: final.y,
+                width: final.width,
+                height: final.height,
+                x: 0,
+                y: 0,
+                scale: 1,
+              },
+              animate: {
+                left: target.x,
+                top: target.y,
+                width: target.width,
+                height: target.height,
+                x: 0,
+                y: 0,
+                scale: 1,
+              },
+              transition: cameraExitTransition,
+              style: {},
+            }
+          : {
+              initial: phase === "enter" || phase === "pan" ? from : false,
+              animate: { x: 0, y: 0, scale: 1 },
+              transition: cameraTransition,
+              style: {
+                left: target.x,
+                top: target.y,
+                width: target.width,
+                height: target.height,
+              },
+            };
+
+        return (
+          <motion.div
+            key={`${drawing.id}-${phase === "pan" ? selection.cellId : phase}`}
+            aria-hidden="true"
+            className="viewZoomPanel"
+            {...motionProps}
+          >
+            <DrawingPreviewSvg drawing={drawing} config={config} />
+          </motion.div>
+        );
+      })}
     </>
   );
 }
@@ -880,7 +913,7 @@ function getPanelTransformFromCamera(
   config: PosterConfig,
   cellIds: string[],
 ) {
-  const sourceCellCamera = getCameraForCell(cellId, sourceCamera, config, cellIds);
+  const sourceCellCamera = getCameraForCell(cellId, sourceCamera.cellId, sourceCamera, config, cellIds);
   if (!sourceCellCamera) return null;
 
   const sourceRect = getProjectedCellRect(sourceCellCamera.cell, sourceCamera.poster, sourceCameraStyle.posterMotion);
@@ -891,31 +924,28 @@ function getPanelTransformFromCamera(
   };
 }
 
-
-function getCameraForCell(cellId: string, sourceCamera: CameraFrame, config: PosterConfig, cellIds: string[]): CameraFrame | null {
+function getCameraForCell(cellId: string, sourceCellId: string, sourceCamera: CameraFrame, config: PosterConfig, cellIds: string[]): CameraFrame | null {
   const cellIndex = cellIds.indexOf(cellId);
+  const sourceCellIndex = cellIds.indexOf(sourceCellId);
   if (cellIndex < 0) return null;
+  if (sourceCellIndex < 0) return null;
 
-  const poster = sourceCamera.poster;
-  const titleHeightPx = poster.height * (config.titleHeightIn / config.posterHeightIn);
-  const drawableHeightPx = poster.height - titleHeightPx;
-  const gridWidthPx = poster.width * (config.gridWidthIn / config.posterWidthIn);
-  const gridHeightPx = drawableHeightPx * (config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn));
-  const gridLeft = poster.x + (poster.width - gridWidthPx) / 2;
-  const gridTop = poster.y + titleHeightPx + (drawableHeightPx - gridHeightPx) / 2;
-  const cellWidth = gridWidthPx / config.columns;
-  const cellHeight = gridHeightPx / config.rows;
   const col = cellIndex % config.columns;
   const row = Math.floor(cellIndex / config.columns);
+  const sourceCol = sourceCellIndex % config.columns;
+  const sourceRow = Math.floor(sourceCellIndex / config.columns);
+  const cellWidth = sourceCamera.cell.width;
+  const cellHeight = sourceCamera.cell.height;
 
   return {
+    cellId,
     cell: {
-      x: gridLeft + col * cellWidth,
-      y: gridTop + row * cellHeight,
+      x: sourceCamera.cell.x + (col - sourceCol) * cellWidth,
+      y: sourceCamera.cell.y + (row - sourceRow) * cellHeight,
       width: cellWidth,
       height: cellHeight,
     },
-    poster,
+    poster: sourceCamera.poster,
   };
 }
 
