@@ -304,7 +304,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   async function saveDrawing(drawing: CellDrawing) {
     optimisticDrawingsRef.current.set(drawing.id, drawing);
     setSnapshot((current) => (current ? upsertDrawing(withOptimisticDrawings(current), drawing) : current));
-    setMessage("Saved.");
+    setMessage("");
     setZoomPhase("exit");
     setPanSourceCellId(null);
     setIsSaving(true);
@@ -332,7 +332,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       const savedDrawing = (await response.json()) as CellDrawing;
       optimisticDrawingsRef.current.set(savedDrawing.id, savedDrawing);
       setSnapshot((current) => (current ? upsertDrawing(current, savedDrawing) : current));
-      setMessage("Saved.");
+      setMessage("");
     } catch {
       optimisticDrawingsRef.current.delete(drawing.id);
       setSnapshot((current) => (current ? rollbackOptimisticDrawing(current, drawing) : current));
@@ -686,7 +686,6 @@ function CellOverlay({
       <div className="overlay noPrint">
         <div className="viewPanSurface" onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
         <div className={`viewControls ${phase === "exit" ? "closing" : "opening"}`}>
-          <p className="status">Read-only saved cell.</p>
           <button type="button" onClick={onClose}>
             Back
           </button>
