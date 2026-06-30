@@ -237,6 +237,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       setZoomPhase("pan");
       window.setTimeout(() => {
         setPanSourceCellId(null);
+        setZoomPhase("idle");
       }, cameraCleanupMs);
     },
     [cellIds, config, drawingsById, selection],
@@ -484,6 +485,9 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
           isSaving={isSaving}
           phase={zoomPhase}
           style={zoomPanelMotionStyle}
+          cameraStyle={cameraStyle}
+          cellIds={cellIds}
+          drawingsById={drawingsById}
           onPointerDown={beginSwipe}
           onPointerUp={endSwipe}
           onPointerCancel={() => {
@@ -664,6 +668,9 @@ function CellOverlay({
   isSaving,
   phase,
   style,
+  cameraStyle,
+  cellIds,
+  drawingsById,
   onPointerDown,
   onPointerUp,
   onPointerCancel,
@@ -675,6 +682,9 @@ function CellOverlay({
   isSaving: boolean;
   phase: ZoomPhase;
   style: ZoomPanelMotionStyle;
+  cameraStyle: CameraStyle | undefined;
+  cellIds: string[];
+  drawingsById: Map<string, CellDrawing>;
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: () => void;
@@ -685,9 +695,14 @@ function CellOverlay({
     return (
       <div className="overlay noPrint">
         <div className="viewPanSurface" onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
-        <motion.div aria-hidden="true" className="zoomPanel viewZoomPanel" style={style}>
-          <DrawingPreviewSvg drawing={selection.drawing} config={config} />
-        </motion.div>
+        <VectorZoomLayer
+          selection={selection}
+          config={config}
+          cellIds={cellIds}
+          drawingsById={drawingsById}
+          cameraStyle={cameraStyle}
+          phase={phase}
+        />
         <div className={`viewControls ${phase === "exit" ? "closing" : "opening"}`}>
           <button type="button" onClick={onClose}>
             Back
@@ -720,6 +735,77 @@ function CellOverlay({
     </div>
   );
 }
+
+function VectorZoomLayer({
+  selection,
+  config,
+  cellIds,
+  drawingsById,
+  cameraStyle,
+  phase,
+}: {
+  selection: Extract<Selection, { kind: "view" }>;
+  config: PosterConfig;
+  cellIds: string[];
+  drawingsById: Map<string, CellDrawing>;
+  cameraStyle: CameraStyle | undefined;
+  phase: ZoomPhase;
+}) {
+  if (!cameraStyle || phase === "pan") return null;
+
+  const panels = [...drawingsById.values()].flatMap((drawing) => {
+    if (
+      drawing.id !== selection.cellId &&
+      !isZoomNeighborCell(cellIds, drawing.id, selection.cellId, config)
+    ) {
+      return [];
+    }
+
+    const cellCamera = getCameraForCell(
+      drawing.id,
+      selection.camera,
+      config,
+      cellIds,
+    );
+    if (!cellCamera) return [];
+
+    const base = cellCamera.cell;
+    const final = getProjectedCellRect(
+      base,
+      selection.camera.poster,
+      cameraStyle.posterMotion,
+    );
+    const from = {
+      x: base.x - final.x,
+      y: base.y - final.y,
+      scale: base.width / final.width,
+    };
+    return [{ drawing, final, from }];
+  });
+
+  return (
+    <>
+      {panels.map(({ drawing, final, from }) => (
+        <motion.div
+          key={drawing.id}
+          aria-hidden="true"
+          className="viewZoomPanel"
+          initial={phase === "enter" ? from : false}
+          animate={phase === "exit" ? from : { x: 0, y: 0, scale: 1 }}
+          transition={phase === "exit" ? cameraExitTransition : cameraTransition}
+          style={{
+            left: final.x,
+            top: final.y,
+            width: final.width,
+          }}
+        >
+          <DrawingPreviewSvg drawing={drawing} config={config} />
+        </motion.div>
+      ))}
+    </>
+  );
+}
+
 
 function getCameraForCell(cellId: string, sourceCamera: CameraFrame, config: PosterConfig, cellIds: string[]): CameraFrame | null {
   const cellIndex = cellIds.indexOf(cellId);
@@ -822,6 +908,19 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
 
 function getZoomCanvasScale(cameraScale: number) {
   return Math.max(1, Math.min(maxZoomCanvasScale, Math.ceil(cameraScale)));
+}
+
+function getProjectedCellRect(
+  cell: ZoomRect,
+  poster: ZoomRect,
+  posterMotion: CameraStyle["posterMotion"],
+): ZoomRect {
+  return {
+    x: poster.x + posterMotion.x + (cell.x - poster.x) * posterMotion.scale,
+    y: poster.y + posterMotion.y + (cell.y - poster.y) * posterMotion.scale,
+    width: cell.width * posterMotion.scale,
+    height: cell.height * posterMotion.scale,
+  };
 }
 
 function getTitleFontFamily() {

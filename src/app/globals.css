@@ -396,6 +396,9 @@ button {
   gap: 0;
   overflow: hidden;
   pointer-events: none;
+  position: fixed;
+  transform-origin: 0 0;
+  will-change: transform;
   z-index: 2;
 }
 
