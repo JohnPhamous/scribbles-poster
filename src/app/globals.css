@@ -14,6 +14,7 @@ body {
   margin: 0;
   min-height: 100%;
   overscroll-behavior: none;
+  touch-action: pan-x pan-y;
 }
 
 button,
@@ -29,6 +30,7 @@ button {
 .app {
   min-height: 100vh;
   padding: 24px;
+  touch-action: pan-x pan-y;
 }
 
 .toolbarHidden {
@@ -53,8 +55,11 @@ button {
 
 .posterExperience {
   align-items: center;
-  display: flex;
+  display: grid;
   gap: clamp(28px, 4vw, 72px);
+  grid-template-columns:
+    minmax(0, max-content)
+    clamp(250px, 24vw, 360px);
   justify-content: center;
   width: 100%;
 }
@@ -120,11 +125,12 @@ button {
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 2px;
   color: #111;
-  flex: 0 0 clamp(250px, 24vw, 360px);
   font-family: var(--font-title), Arial, Helvetica, sans-serif;
   font-size: clamp(14px, 1.55vw, 24px);
   font-synthesis: none;
+  justify-self: stretch;
   line-height: 0.98;
+  min-height: 142px;
   opacity: 1;
   padding: 24px 28px;
   position: relative;
@@ -176,7 +182,7 @@ button {
   overflow: hidden;
   padding: 0;
   position: relative;
-  touch-action: manipulation;
+  touch-action: pan-x pan-y;
 }
 
 .cell:focus {
@@ -718,8 +724,9 @@ button {
 
   .posterExperience {
     align-content: center;
-    flex-direction: column;
     gap: clamp(8px, 1.8dvh, 14px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(104px, auto) minmax(0, 1fr);
     height: 100%;
     min-height: 0;
     overflow: hidden;
@@ -770,10 +777,11 @@ button {
   }
 
   .posterInvite {
-    flex: none;
     font-size: clamp(13px, 4.5vw, 18px);
+    justify-self: stretch;
     line-height: 0.96;
     max-width: 100%;
+    min-height: 104px;
     order: -1;
     padding: 14px 18px;
     transform: rotate(-0.5deg);

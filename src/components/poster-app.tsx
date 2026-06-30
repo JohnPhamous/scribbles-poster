@@ -304,6 +304,9 @@ export function PosterApp({
 
   useEffect(() => {
     const preventGesture = (event: Event) => event.preventDefault();
+    const preventMultitouch = (event: TouchEvent) => {
+      if (event.touches.length > 1) event.preventDefault();
+    };
     document.addEventListener("gesturestart", preventGesture, {
       passive: false,
     });
@@ -311,10 +314,14 @@ export function PosterApp({
       passive: false,
     });
     document.addEventListener("gestureend", preventGesture, { passive: false });
+    document.addEventListener("touchmove", preventMultitouch, {
+      passive: false,
+    });
     return () => {
       document.removeEventListener("gesturestart", preventGesture);
       document.removeEventListener("gesturechange", preventGesture);
       document.removeEventListener("gestureend", preventGesture);
+      document.removeEventListener("touchmove", preventMultitouch);
     };
   }, []);
 
