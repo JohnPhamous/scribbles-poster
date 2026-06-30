@@ -15,10 +15,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#F1F1EF",
+  themeColor: "#FFFBE8",
   width: "device-width",
   initialScale: 1,
+  minimumScale: 1,
   maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

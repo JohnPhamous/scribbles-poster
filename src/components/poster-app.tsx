@@ -66,6 +66,7 @@ const maxZoomCanvasScale = 14;
 const authorLabelFontRatio = 0.08;
 const authorLabelMarginRatio = 0.05;
 const authorLabelFallbackFontFamily = "Arial, sans-serif";
+const posterBackgroundColor = "#FFFBE8";
 const visibleRefreshMs = 1_000;
 const hiddenRefreshMs = 5_000;
 
@@ -159,6 +160,18 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
       document.removeEventListener("visibilitychange", refreshNow);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    const preventGesture = (event: Event) => event.preventDefault();
+    document.addEventListener("gesturestart", preventGesture, { passive: false });
+    document.addEventListener("gesturechange", preventGesture, { passive: false });
+    document.addEventListener("gestureend", preventGesture, { passive: false });
+    return () => {
+      document.removeEventListener("gesturestart", preventGesture);
+      document.removeEventListener("gesturechange", preventGesture);
+      document.removeEventListener("gestureend", preventGesture);
+    };
+  }, []);
 
   useEffect(() => {
     if (replayStartedAt === null || !config) return;
@@ -257,6 +270,19 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [navigateView, selection]);
+
+  useEffect(() => {
+    if (!selection) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeSelection();
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [selection]);
 
   function beginSwipe(event: PointerEvent<HTMLDivElement>) {
     if (selection?.kind !== "view" || event.pointerType === "mouse") return;
@@ -365,7 +391,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = posterBackgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
@@ -599,7 +625,7 @@ function DrawingCanvas({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.setTransform(canvas.width / config.canvasSize, 0, 0, canvas.height / config.canvasSize, 0, 0);
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = posterBackgroundColor;
       ctx.fillRect(0, 0, config.canvasSize, config.canvasSize);
       if (!drawing) return;
 
@@ -1062,6 +1088,15 @@ function getReplayByCellId(mode: ReplayMode, elapsedMs: number, drawings: CellDr
   return map;
 }
 
+function shufflePalette(palette: string[]) {
+  const shuffled = [...palette];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
 function Editor({
   cellId,
   config,
@@ -1082,7 +1117,8 @@ function Editor({
   const drawingStartedAtRef = useRef(performance.now());
   const strokeStartedAtRef = useRef(0);
   const [strokesVersion, setStrokesVersion] = useState(0);
-  const [color, setColor] = useState(config.palette[0]);
+  const [randomizedPalette] = useState(() => shufflePalette(config.palette));
+  const [color, setColor] = useState(randomizedPalette[0] ?? config.palette[0]);
   const [name, setName] = useState("");
 
   const redraw = useCallback(() => {
@@ -1091,7 +1127,7 @@ function Editor({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(canvas.width / config.canvasSize, 0, 0, canvas.height / config.canvasSize, 0, 0);
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = posterBackgroundColor;
     ctx.fillRect(0, 0, config.canvasSize, config.canvasSize);
     drawStrokes(ctx, [...strokesRef.current, ...(currentStrokeRef.current ? [currentStrokeRef.current] : [])], config.canvasSize);
     const previewName = name.trim();
@@ -1253,7 +1289,7 @@ function Editor({
           </button>
         </div>
         <div className="editorControlsSegment palette" aria-label="Drawing colors">
-          {config.palette.map((item) => (
+          {randomizedPalette.map((item) => (
             <button
               key={item}
               type="button"

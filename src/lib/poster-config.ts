@@ -32,7 +32,7 @@ export const posterConfig: PosterConfig = {
   maxReplayMs: 45_000,
   sequentialReplayCellMs: 2_200,
   exportDpi: 150,
-  palette: ["#3d348bff", "#7678edff", "#f7b801ff", "#f18701ff", "#f35b04ff"],
+  palette: ["#FFC82D", "#0364BA", "#41A9AC", "#DC2625", "#000000"],
 };
 
 export function getCellIds(config: Pick<PosterConfig, "rows" | "columns"> = posterConfig) {

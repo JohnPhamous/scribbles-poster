@@ -67,7 +67,7 @@ button {
     calc((100vh - 112px) * var(--poster-width) / var(--poster-height))
   );
   aspect-ratio: calc(var(--poster-width) / var(--poster-height));
-  background: #fff;
+  background: #fffbe8;
   border: 1px solid #cccccc8f;
   display: grid;
   grid-template-rows: calc(var(--title-height) / var(--poster-height) * 100%) 1fr;
@@ -99,7 +99,7 @@ button {
 
 .posterGrid {
   align-self: center;
-  background: #fff;
+  background: #fffbe8;
   display: grid;
   gap: 0;
   grid-template-columns: repeat(var(--columns), 1fr);
@@ -165,7 +165,7 @@ button {
 
 .cell {
   appearance: none;
-  background: #fff;
+  background: #fffbe8;
   border: 0;
   cursor: pointer;
   display: block;
@@ -392,7 +392,7 @@ button {
 
 .viewZoomPanel {
   aspect-ratio: 1;
-  background: #fff;
+  background: #fffbe8;
   gap: 0;
   overflow: hidden;
   pointer-events: none;
@@ -541,6 +541,7 @@ button {
 
 .palette {
   display: flex;
+  flex-shrink: 0;
   gap: 6px;
 }
 
@@ -549,6 +550,7 @@ button {
   border-radius: 999px;
   cursor: pointer;
   height: 34px;
+  flex-shrink: 0;
   padding: 0;
   width: 34px;
 }
