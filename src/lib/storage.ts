@@ -8,7 +8,12 @@ const drawOrderLockPath = `${lockPrefix}draw-order.json`;
 const drawOrderLockTtlMs = 8_000;
 const drawOrderLockWaitMs = 6_000;
 const drawOrderLockRetryMs = 120;
-const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
+type BlobAuthOptions = {
+  oidcToken?: string;
+  storeId?: string;
+  token?: string;
+};
 
 type MemoryStore = {
   cells: Map<string, CellDrawing>;
@@ -20,7 +25,7 @@ const memoryStore = ((globalThis as typeof globalThis & { __scribblePosterMemory
 const memoryCells = memoryStore.cells;
 const cellsListCacheMs = 1_200;
 
-export const hasPersistentStorage = hasBlobToken;
+export const hasPersistentStorage = hasBlobCredentials();
 
 let cellsCache: { expiresAt: number; value: CellDrawing[] } | null = null;
 
@@ -30,7 +35,8 @@ type BlobLock = {
 };
 
 export async function listCells(options?: { bypassCache?: boolean }): Promise<CellDrawing[]> {
-  if (!hasBlobToken) {
+  const blobAuth = getBlobAuthOptions();
+  if (!blobAuth) {
     return Array.from(memoryCells.values());
   }
 
@@ -38,7 +44,7 @@ export async function listCells(options?: { bypassCache?: boolean }): Promise<Ce
     return cellsCache.value;
   }
 
-  const blobs = await list({ prefix: cellPrefix, limit: 1000 });
+  const blobs = await list({ ...blobAuth, prefix: cellPrefix, limit: 1000 });
   const drawings = await Promise.all(
     blobs.blobs
       .filter((blob) => blob.pathname.endsWith(".json"))
@@ -51,11 +57,10 @@ export async function listCells(options?: { bypassCache?: boolean }): Promise<Ce
 }
 
 export async function getCell(id: string, options?: { retry?: boolean }): Promise<CellDrawing | null> {
-  if (!hasBlobToken) return memoryCells.get(id) ?? null;
+  if (!hasBlobCredentials()) return memoryCells.get(id) ?? null;
   const attempts = options?.retry ? 6 : 1;
   for (let index = 0; index < attempts; index += 1) {
-    const cells = await listCells();
-    const cell = cells.find((item) => item.id === id);
+    const cell = await getCellFast(id);
     if (cell) return cell;
     if (index < attempts - 1) await sleep(500);
   }
@@ -63,12 +68,12 @@ export async function getCell(id: string, options?: { retry?: boolean }): Promis
 }
 
 export async function getCellFast(id: string): Promise<CellDrawing | null> {
-  if (!hasBlobToken) return memoryCells.get(id) ?? null;
+  if (!hasBlobCredentials()) return memoryCells.get(id) ?? null;
   return readJson<CellDrawing>(`${cellPrefix}${id}.json`);
 }
 
 export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occupied"> {
-  if (!hasBlobToken) {
+  if (!hasBlobCredentials()) {
     const existing = await getCell(drawing.id);
     if (existing) return "occupied";
     const nextDrawing = {
@@ -90,6 +95,7 @@ export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occ
 
     try {
       await put(`${cellPrefix}${drawing.id}.json`, JSON.stringify(nextDrawing), {
+        ...getRequiredBlobAuthOptions(),
         access: blobAccess,
         contentType: "application/json",
         allowOverwrite: false,
@@ -120,6 +126,7 @@ async function withDrawOrderLock<T>(callback: () => Promise<T>) {
           expiresAt: new Date(Date.now() + drawOrderLockTtlMs).toISOString(),
         } satisfies BlobLock),
         {
+          ...getRequiredBlobAuthOptions(),
           access: blobAccess,
           contentType: "application/json",
           allowOverwrite: false,
@@ -143,7 +150,7 @@ async function deleteExpiredDrawOrderLock() {
   const lock = await readListedBlobByPath<BlobLock>(drawOrderLockPath);
   if (!lock || new Date(lock.expiresAt).getTime() > Date.now()) return;
   try {
-    await del(drawOrderLockPath);
+    await del(drawOrderLockPath, getRequiredBlobAuthOptions());
   } catch {
     // A concurrent request may have already cleared it.
   }
@@ -153,7 +160,7 @@ async function releaseDrawOrderLock(token: string) {
   const lock = await readListedBlobByPath<BlobLock>(drawOrderLockPath);
   if (lock?.token !== token) return;
   try {
-    await del(drawOrderLockPath);
+    await del(drawOrderLockPath, getRequiredBlobAuthOptions());
   } catch {
     // The TTL cleanup path can handle a missed release.
   }
@@ -169,20 +176,22 @@ function isBlobConflictError(error: unknown) {
 
 async function readListedBlobByPath<T>(path: string): Promise<T | null> {
   const prefix = path.slice(0, path.lastIndexOf("/") + 1);
-  const blobs = await list({ prefix, limit: 1000 });
+  const blobs = await list({ ...getRequiredBlobAuthOptions(), prefix, limit: 1000 });
   const blob = blobs.blobs.find((item) => item.pathname === path);
   if (!blob) return null;
   return readJson<T>(blob.pathname);
 }
 
 async function readJson<T>(pathname: string): Promise<T | null> {
-  try {
-    const result = await get(pathname, { access: blobAccess });
-    if (!result || result.statusCode !== 200) return null;
-    return (await new Response(result.stream).json()) as T;
-  } catch {
-    return null;
+  const result = await get(pathname, {
+    ...getRequiredBlobAuthOptions(),
+    access: blobAccess,
+  });
+  if (!result) return null;
+  if (result.statusCode !== 200) {
+    throw new Error(`Failed to read blob ${pathname}: ${result.statusCode}`);
   }
+  return (await new Response(result.stream).json()) as T;
 }
 
 function isPresent<T>(value: T | null): value is T {
@@ -196,4 +205,47 @@ function invalidateCellsCache() {
 async function getNextDrawOrder() {
   const cells = await listCells({ bypassCache: true });
   return cells.reduce((max, cell) => Math.max(max, cell.drawOrder ?? 0), 0) + 1;
+}
+
+function hasBlobCredentials() {
+  return getBlobAuthOptions() !== null;
+}
+
+function getRequiredBlobAuthOptions() {
+  const options = getBlobAuthOptions();
+  if (!options) throw new Error("Missing Blob credentials");
+  return options;
+}
+
+function getBlobAuthOptions(): BlobAuthOptions | null {
+  if (isProductionEnvironment()) {
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      return { token: process.env.BLOB_READ_WRITE_TOKEN };
+    }
+    if (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID) {
+      return {
+        oidcToken: process.env.VERCEL_OIDC_TOKEN,
+        storeId: process.env.BLOB_STORE_ID,
+      };
+    }
+    return null;
+  }
+
+  if (process.env.BLOB_DEV_READ_WRITE_TOKEN) {
+    return { token: process.env.BLOB_DEV_READ_WRITE_TOKEN };
+  }
+  if (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_DEV_STORE_ID) {
+    return {
+      oidcToken: process.env.VERCEL_OIDC_TOKEN,
+      storeId: process.env.BLOB_DEV_STORE_ID,
+    };
+  }
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    return { token: process.env.BLOB_READ_WRITE_TOKEN };
+  }
+  return null;
+}
+
+function isProductionEnvironment() {
+  return process.env.VERCEL_ENV === "production";
 }

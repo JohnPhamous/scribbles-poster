@@ -148,7 +148,9 @@ export function PosterApp({
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const enterCleanupTimerRef = useRef(0);
+  const exitCleanupTimerRef = useRef(0);
   const panCleanupTimerRef = useRef(0);
+  const refreshRequestRef = useRef(0);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const gridSnapRef = useRef<GridSnap | null>(null);
   const [gridSnap, setGridSnap] = useState<GridSnap | null>(null);
@@ -264,9 +266,12 @@ export function PosterApp({
   }, [config, selection]);
 
   const refresh = useCallback(async () => {
+    const requestId = refreshRequestRef.current + 1;
+    refreshRequestRef.current = requestId;
     const response = await fetch("/api/poster", { cache: "no-store" });
     if (!response.ok) throw new Error("Failed to load poster");
     const next = (await response.json()) as PosterSnapshot;
+    if (requestId !== refreshRequestRef.current) return;
     setSnapshot(withOptimisticDrawings(next));
   }, [withOptimisticDrawings]);
 
@@ -323,10 +328,6 @@ export function PosterApp({
       document.removeEventListener("gestureend", preventGesture);
       document.removeEventListener("touchmove", preventMultitouch);
     };
-  }, []);
-
-  useEffect(() => {
-    return () => window.clearTimeout(panCleanupTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -442,6 +443,7 @@ export function PosterApp({
       setSelection({ kind: "view", cellId: targetId, drawing, camera });
       setZoomPhase("pan");
       window.clearTimeout(enterCleanupTimerRef.current);
+      window.clearTimeout(exitCleanupTimerRef.current);
       window.clearTimeout(panCleanupTimerRef.current);
       panCleanupTimerRef.current = window.setTimeout(() => {
         setPanSourceCellId(null);
@@ -484,6 +486,7 @@ export function PosterApp({
   useEffect(() => {
     return () => {
       window.clearTimeout(enterCleanupTimerRef.current);
+      window.clearTimeout(exitCleanupTimerRef.current);
       window.clearTimeout(panCleanupTimerRef.current);
     };
   }, []);
@@ -523,6 +526,7 @@ export function PosterApp({
       setPanSourceCellId(null);
       setPanSourceCamera(null);
       window.clearTimeout(enterCleanupTimerRef.current);
+      window.clearTimeout(exitCleanupTimerRef.current);
       window.clearTimeout(panCleanupTimerRef.current);
       setSelection({ kind: "view", cellId, drawing, camera });
       setZoomPhase("enter");
@@ -533,6 +537,7 @@ export function PosterApp({
     setPanSourceCellId(null);
     setPanSourceCamera(null);
     window.clearTimeout(enterCleanupTimerRef.current);
+    window.clearTimeout(exitCleanupTimerRef.current);
     window.clearTimeout(panCleanupTimerRef.current);
     setSelection({ kind: "edit", cellId, camera });
     setZoomPhase("enter");
@@ -546,9 +551,10 @@ export function PosterApp({
     setPanSourceCellId(null);
     setPanSourceCamera(null);
     window.clearTimeout(enterCleanupTimerRef.current);
+    window.clearTimeout(exitCleanupTimerRef.current);
     window.clearTimeout(panCleanupTimerRef.current);
 
-    window.setTimeout(() => {
+    exitCleanupTimerRef.current = window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
     }, cameraExitCleanupMs);
@@ -566,10 +572,11 @@ export function PosterApp({
     setPanSourceCellId(null);
     setPanSourceCamera(null);
     window.clearTimeout(enterCleanupTimerRef.current);
+    window.clearTimeout(exitCleanupTimerRef.current);
     window.clearTimeout(panCleanupTimerRef.current);
     setIsSaving(true);
 
-    window.setTimeout(() => {
+    exitCleanupTimerRef.current = window.setTimeout(() => {
       setSelection(null);
       setZoomPhase("idle");
     }, cameraExitCleanupMs);
@@ -597,6 +604,7 @@ export function PosterApp({
         current ? upsertDrawing(current, savedDrawing) : current
       );
       setMessage("");
+      await refresh().catch(() => undefined);
     } catch {
       optimisticDrawingsRef.current.delete(drawing.id);
       setSnapshot((current) =>

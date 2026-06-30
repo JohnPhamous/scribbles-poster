@@ -35,11 +35,6 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
   const body = (await request.json()) as { drawing?: unknown };
 
-  const existing = await getCell(id);
-  if (existing) {
-    return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
-  }
-
   const drawing = validateDrawing(body.drawing, id);
   if (!drawing) {
     return NextResponse.json({ error: "Invalid drawing" }, { status: 400 });

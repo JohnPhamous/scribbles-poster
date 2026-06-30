@@ -9,20 +9,35 @@ npm install
 npm run dev
 ```
 
-Without `BLOB_READ_WRITE_TOKEN`, the app uses in-memory storage for local testing.
+Without Blob credentials, the app uses in-memory storage for local testing.
 
 ## Vercel Blob
 
-Set this env var in Vercel:
+Production uses the existing production Blob token:
 
 ```bash
 BLOB_READ_WRITE_TOKEN=...
 ```
 
+Development uses the dev Blob store first:
+
+```bash
+BLOB_DEV_STORE_ID=store_ypzhkEGcHaKxGdfj
+VERCEL_OIDC_TOKEN=...
+```
+
+Run this to refresh local env values from Vercel:
+
+```bash
+vercel env pull .env.local --environment development --scope phamous-labs2 --yes
+```
+
+If the dev store has a read-write token enabled later, `BLOB_DEV_READ_WRITE_TOKEN` also works and takes precedence over OIDC locally.
+
 The app stores:
 
 - `cells/{cellId}.json` full drawing data
-- `holds/{cellId}.json` active 10-minute cell holds
+- `locks/draw-order.json` transient lock for sequential draw order
 
 ## Config
 
