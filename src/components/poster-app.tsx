@@ -626,7 +626,7 @@ function DrawingCanvas({
   return (
     <>
       {drawing ? <DrawingPreviewSvg drawing={drawing} config={config} /> : null}
-      <canvas ref={canvasRef} className="drawingCanvas" />
+      <canvas ref={canvasRef} className={`drawingCanvas ${drawing && replay === null ? "drawingCanvasStatic" : ""}`} />
     </>
   );
 }

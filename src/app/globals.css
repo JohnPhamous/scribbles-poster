@@ -225,6 +225,10 @@ button {
   z-index: 1;
 }
 
+.drawingCanvasStatic {
+  opacity: 0;
+}
+
 .drawingPreviewSvg {
   display: block;
   height: 100%;
