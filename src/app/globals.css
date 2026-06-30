@@ -588,9 +588,10 @@ button {
 
 .editorControls input {
   background: transparent;
+  flex: 1 1 auto;
   min-width: 0;
   padding-inline: 10px;
-  width: min(210px, 34vw);
+  width: 100%;
 }
 
 .palette {
