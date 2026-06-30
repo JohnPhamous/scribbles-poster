@@ -103,6 +103,10 @@ const pageBackgroundColor = "#F1F1EF";
 const posterBackgroundColor = "#FFFBE8";
 const visibleRefreshMs = 1_000;
 const hiddenRefreshMs = 5_000;
+const pendingDrawingDbName = "scribble-poster-pending-drawings";
+const pendingDrawingStoreName = "drawings";
+const pendingDrawingStoragePrefix = "scribble-poster:pending-drawing:";
+const pendingDrawingBackupTimeoutMs = 1_200;
 
 type GridSnap = {
   cellPx: number;
@@ -561,6 +565,7 @@ export function PosterApp({
   }
 
   async function saveDrawing(drawing: CellDrawing) {
+    await backupPendingDrawing(drawing);
     optimisticDrawingsRef.current.set(drawing.id, drawing);
     setSnapshot((current) =>
       current
@@ -589,28 +594,39 @@ export function PosterApp({
       });
 
       if (!response.ok) {
+        const responseText = await response.text().catch(() => "");
+        logClientSaveFailure("api-error", drawing, {
+          status: response.status,
+          responseText,
+        });
         optimisticDrawingsRef.current.delete(drawing.id);
         setSnapshot((current) =>
           current ? rollbackOptimisticDrawing(current, drawing) : current
         );
-        setMessage(getSaveErrorMessage(response.status));
+        setMessage(
+          `${getSaveErrorMessage(response.status)} Your drawing is backed up in this browser.`
+        );
         await refresh().catch(() => undefined);
         return;
       }
 
       const savedDrawing = (await response.json()) as CellDrawing;
+      await clearPendingDrawingBackup(savedDrawing.id);
       optimisticDrawingsRef.current.set(savedDrawing.id, savedDrawing);
       setSnapshot((current) =>
         current ? upsertDrawing(current, savedDrawing) : current
       );
       setMessage("");
       await refresh().catch(() => undefined);
-    } catch {
+    } catch (error) {
+      logClientSaveFailure("network-exception", drawing, error);
       optimisticDrawingsRef.current.delete(drawing.id);
       setSnapshot((current) =>
         current ? rollbackOptimisticDrawing(current, drawing) : current
       );
-      setMessage("Could not save. Check your connection and try another cell.");
+      setMessage(
+        "Could not save. Your drawing is backed up in this browser. Check your connection and try another cell."
+      );
       await refresh().catch(() => undefined);
     } finally {
       setIsSaving(false);
@@ -848,6 +864,159 @@ export function PosterApp({
       ) : null}
     </main>
   );
+}
+
+type PendingDrawingBackup = {
+  id: string;
+  drawing: CellDrawing;
+  savedAt: string;
+  url: string;
+  userAgent: string;
+};
+
+async function backupPendingDrawing(drawing: CellDrawing) {
+  const backup: PendingDrawingBackup = {
+    id: drawing.id,
+    drawing,
+    savedAt: new Date().toISOString(),
+    url: window.location.href,
+    userAgent: window.navigator.userAgent,
+  };
+
+  try {
+    await withTimeout(
+      writePendingDrawingToIndexedDb(backup),
+      pendingDrawingBackupTimeoutMs
+    );
+    return;
+  } catch (indexedDbError) {
+    try {
+      window.localStorage.setItem(
+        `${pendingDrawingStoragePrefix}${drawing.id}`,
+        JSON.stringify(backup)
+      );
+      return;
+    } catch (localStorageError) {
+      console.error("[scribble-poster] could not back up pending drawing", {
+        indexedDbError,
+        localStorageError,
+      });
+      logClientSaveFailure("backup-failed", drawing, {
+        indexedDbError,
+        localStorageError,
+      });
+    }
+  }
+}
+
+async function clearPendingDrawingBackup(cellId: string) {
+  try {
+    await deletePendingDrawingFromIndexedDb(cellId);
+  } catch (error) {
+    console.warn("[scribble-poster] could not clear IndexedDB drawing backup", {
+      cellId,
+      error,
+    });
+  }
+
+  try {
+    window.localStorage.removeItem(`${pendingDrawingStoragePrefix}${cellId}`);
+  } catch (error) {
+    console.warn("[scribble-poster] could not clear localStorage drawing backup", {
+      cellId,
+      error,
+    });
+  }
+}
+
+function writePendingDrawingToIndexedDb(backup: PendingDrawingBackup) {
+  return withPendingDrawingStore("readwrite", (store) => store.put(backup));
+}
+
+function deletePendingDrawingFromIndexedDb(cellId: string) {
+  return withPendingDrawingStore("readwrite", (store) => store.delete(cellId));
+}
+
+function withPendingDrawingStore(
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore) => IDBRequest
+) {
+  return new Promise<void>((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB is unavailable"));
+      return;
+    }
+
+    const openRequest = window.indexedDB.open(pendingDrawingDbName, 1);
+    openRequest.onupgradeneeded = () => {
+      const db = openRequest.result;
+      if (!db.objectStoreNames.contains(pendingDrawingStoreName)) {
+        db.createObjectStore(pendingDrawingStoreName, { keyPath: "id" });
+      }
+    };
+    openRequest.onerror = () => reject(openRequest.error);
+    openRequest.onsuccess = () => {
+      const db = openRequest.result;
+      const transaction = db.transaction(pendingDrawingStoreName, mode);
+      const store = transaction.objectStore(pendingDrawingStoreName);
+      const request = action(store);
+
+      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        db.close();
+        reject(transaction.error);
+      };
+      transaction.onabort = () => {
+        db.close();
+        reject(transaction.error ?? new Error("IndexedDB transaction aborted"));
+      };
+    };
+  });
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`Timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+function logClientSaveFailure(
+  reason: string,
+  drawing: CellDrawing,
+  details: unknown
+) {
+  console.error("[scribble-poster] drawing save failed", {
+    reason,
+    details,
+  });
+
+  try {
+    console.log(
+      "[scribble-poster] failed drawing payload",
+      JSON.stringify(drawing)
+    );
+  } catch (error) {
+    console.error("[scribble-poster] could not serialize failed drawing", {
+      error,
+      drawing,
+    });
+  }
 }
 
 function PosterInvite({ config }: { config: PosterConfig }) {
