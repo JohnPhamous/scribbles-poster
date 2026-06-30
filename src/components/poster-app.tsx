@@ -685,6 +685,9 @@ function CellOverlay({
     return (
       <div className="overlay noPrint">
         <div className="viewPanSurface" onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
+        <motion.div aria-hidden="true" className="zoomPanel viewZoomPanel" style={style}>
+          <DrawingPreviewSvg drawing={selection.drawing} config={config} />
+        </motion.div>
         <div className={`viewControls ${phase === "exit" ? "closing" : "opening"}`}>
           <button type="button" onClick={onClose}>
             Back

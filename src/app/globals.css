@@ -390,6 +390,15 @@ button {
   will-change: transform, opacity;
 }
 
+.viewZoomPanel {
+  aspect-ratio: 1;
+  background: #fff;
+  gap: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .drawGuideFrame {
   aspect-ratio: 1;
   left: var(--zoom-to-x);
