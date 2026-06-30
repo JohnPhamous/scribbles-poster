@@ -42,7 +42,9 @@ button {
 }
 
 .stage {
-  transition: opacity 260ms ease, transform 360ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  transition:
+    opacity 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 360ms cubic-bezier(0.19, 1, 0.22, 1);
   display: grid;
   min-height: calc(100vh - 92px);
   justify-items: center;
@@ -92,7 +94,6 @@ button {
   line-height: 1;
   overflow: hidden;
   padding: 0 5%;
-  padding-bottom: 8px;
   text-align: left;
   white-space: nowrap;
 }
@@ -127,7 +128,9 @@ button {
   opacity: 1;
   padding: 24px 28px;
   position: relative;
-  transition: opacity 220ms ease, transform 220ms ease;
+  transition:
+    opacity 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 320ms cubic-bezier(0.19, 1, 0.22, 1);
   transform: rotate(0.4deg);
   z-index: 4;
 }
@@ -138,10 +141,6 @@ button {
 
 .posterInvite p + p {
   margin-top: 0.75em;
-}
-
-.posterInviteSize {
-  color: #f35b04;
 }
 
 .posterInviteArrow {
@@ -195,18 +194,18 @@ button {
 }
 
 .cell.available::before {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 999px;
   content: "";
-  height: min(5px, 8%);
+  height: min(4px, 8%);
   left: 50%;
   opacity: 1;
   pointer-events: none;
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  transition: opacity 220ms ease;
-  width: min(5px, 8%);
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  width: min(4px, 8%);
   z-index: 3;
 }
 
@@ -216,6 +215,10 @@ button {
 
 .cell:focus-visible::after {
   opacity: 1;
+}
+
+.zoomActive .cell::after {
+  opacity: 0;
 }
 
 .drawingCanvas {
@@ -259,7 +262,7 @@ button {
   justify-content: center;
   min-height: 44px;
   padding-top: 14px;
-  transition: opacity 180ms ease;
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .iconButton,
@@ -289,8 +292,19 @@ button {
 }
 
 .iconButton:focus-visible,
-.editorControls button:focus-visible:not(:disabled),
 .viewControls button:focus-visible:not(:disabled) {
+  background: #000;
+  box-shadow: inset 0 0 0 2px #fff;
+  color: #fff;
+}
+
+.editorControls button:focus-visible:not(:disabled) {
+  background: rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 0 0 2px #000;
+  color: #000;
+}
+
+.editorControls button[data-primary]:focus-visible:not(:disabled) {
   background: #000;
   box-shadow: inset 0 0 0 2px #fff;
   color: #fff;
@@ -307,13 +321,21 @@ button {
 
 .editorControls button:disabled,
 .viewControls button:disabled {
+  background: transparent;
   color: #8d8d8d;
   cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .editorControls button[data-primary] {
   background: #000;
   color: #fff;
+}
+
+.editorControls button[data-primary]:disabled {
+  background: rgba(0, 0, 0, 0.12);
+  color: rgba(0, 0, 0, 0.38);
+  opacity: 1;
 }
 
 .status {
@@ -379,11 +401,11 @@ button {
 }
 
 .viewControls.opening {
-  animation: viewControlsIn 180ms cubic-bezier(0.16, 1, 0.2, 1) 180ms both;
+  animation: viewControlsIn 220ms cubic-bezier(0.19, 1, 0.22, 1) 420ms both;
 }
 
 .viewControls.closing {
-  animation: viewControlsOut 120ms ease both;
+  animation: viewControlsOut 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .zoomPanel {
@@ -396,6 +418,7 @@ button {
   width: var(--zoom-to-size);
   transform-origin: 0 0;
   will-change: transform, opacity;
+  z-index: 4;
 }
 
 .viewZoomPanel {
@@ -424,11 +447,11 @@ button {
 }
 
 .drawGuideFrame.opening {
-  animation: guideIn 420ms ease 80ms forwards;
+  animation: guideIn 520ms cubic-bezier(0.19, 1, 0.22, 1) 80ms forwards;
 }
 
 .drawGuideFrame.closing {
-  animation: guideOut 120ms ease both;
+  animation: guideOut 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .drawGuideLine {
@@ -476,15 +499,24 @@ button {
   position: relative;
 }
 
+.editorCanvasWrap.editing::after {
+  border: 1px dashed rgba(0, 0, 0, 0.22);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
 .editorCanvasWrap.editing {
   background: transparent;
   border: 0;
   box-shadow: none;
+  opacity: 1;
   touch-action: none;
 }
 
-.zoomPanel.opening .editorCanvasWrap.editing {
-  animation: editorCanvasReady 1ms linear 620ms forwards;
+.editorCanvasWrap.editing.pending {
   opacity: 0;
 }
 
@@ -495,14 +527,16 @@ button {
   cursor: crosshair;
   display: block;
   height: 100%;
+  position: relative;
   touch-action: none;
   user-select: none;
   width: 100%;
+  z-index: 1;
 }
 
 .editorControls {
   align-items: center;
-  animation: controlsIn 240ms cubic-bezier(0.16, 1, 0.2, 1) 620ms both;
+  animation: controlsIn 260ms cubic-bezier(0.19, 1, 0.22, 1) 560ms both;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -510,12 +544,13 @@ button {
   justify-self: center;
   margin: 0 auto;
   max-width: calc(100vw - 16px);
+  padding-inline: 12px;
   width: max-content;
 }
 
 .editorControlsSegment {
   align-items: center;
-  background: rgba(255, 255, 255, 0.96);
+  background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.32);
   border-radius: 999px;
   display: flex;
@@ -536,7 +571,7 @@ button {
 }
 
 .zoomPanel.closing .editorControls {
-  animation: controlsOut 120ms ease both;
+  animation: controlsOut 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
   pointer-events: none;
 }
 
@@ -554,11 +589,24 @@ button {
 }
 
 .swatch {
+  aspect-ratio: 1;
   border: 2px solid #000;
   border-radius: 999px;
+  box-sizing: border-box;
   cursor: pointer;
+  flex: 0 0 34px;
   height: 34px;
-  flex-shrink: 0;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 0;
+  width: 34px;
+}
+
+.editorControls .swatch {
+  flex: 0 0 34px;
+  height: 34px;
+  min-height: 34px;
+  min-width: 34px;
   padding: 0;
   width: 34px;
 }
@@ -577,10 +625,15 @@ button {
   }
 
   .iconButton:hover,
-  .editorControls button:hover:not(:disabled),
-  .viewControls button:hover:not(:disabled) {
+  .viewControls button:hover:not(:disabled),
+  .editorControls button[data-primary]:hover:not(:disabled) {
     background: #000;
     color: #fff;
+  }
+
+  .editorControls button:not([data-primary]):hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.08);
+    color: #000;
   }
 }
 
@@ -597,7 +650,7 @@ button {
 @keyframes controlsIn {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(12px);
   }
 
   to {
@@ -606,16 +659,10 @@ button {
   }
 }
 
-@keyframes editorCanvasReady {
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes controlsOut {
   to {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
 }
 
@@ -664,7 +711,8 @@ button {
     height: 100dvh;
     min-height: 100dvh;
     overflow: hidden;
-    padding: max(8px, env(safe-area-inset-top)) 0 max(8px, env(safe-area-inset-bottom));
+    padding: max(8px, env(safe-area-inset-top)) 0
+      max(8px, env(safe-area-inset-bottom));
     width: 100vw;
   }
 
@@ -675,7 +723,8 @@ button {
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    padding: 0 max(8px, env(safe-area-inset-left)) 0 max(8px, env(safe-area-inset-right));
+    padding: 0 max(8px, env(safe-area-inset-left)) 0
+      max(8px, env(safe-area-inset-right));
   }
 
   .stage {
@@ -686,15 +735,37 @@ button {
 
   .poster {
     width: min(
-      calc(100vw - max(16px, calc(env(safe-area-inset-left) + env(safe-area-inset-right)))),
-      calc((100dvh - 132px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * var(--poster-width) / var(--poster-height))
+      calc(
+        100vw -
+          max(
+            16px,
+            calc(env(safe-area-inset-left) + env(safe-area-inset-right))
+          )
+      ),
+      calc(
+        (
+            100dvh - 132px - env(safe-area-inset-top) -
+              env(safe-area-inset-bottom)
+          ) * var(--poster-width) / var(--poster-height)
+      )
     );
   }
 
   .toolbarHidden .poster {
     width: min(
-      calc(100vw - max(16px, calc(env(safe-area-inset-left) + env(safe-area-inset-right)))),
-      calc((100dvh - 118px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * var(--poster-width) / var(--poster-height))
+      calc(
+        100vw -
+          max(
+            16px,
+            calc(env(safe-area-inset-left) + env(safe-area-inset-right))
+          )
+      ),
+      calc(
+        (
+            100dvh - 118px - env(safe-area-inset-top) -
+              env(safe-area-inset-bottom)
+          ) * var(--poster-width) / var(--poster-height)
+      )
     );
   }
 
@@ -762,9 +833,43 @@ button {
 
   .editorControls {
     gap: 6px;
-    max-height: calc(100dvh - var(--zoom-to-size) - var(--zoom-to-y) - env(safe-area-inset-bottom) - 8px);
+    justify-content: center;
+    max-height: calc(
+      100dvh - var(--zoom-to-size) - var(--zoom-to-y) -
+        env(safe-area-inset-bottom) - 8px
+    );
     overflow: hidden;
     width: min(var(--zoom-to-size), calc(100vw - 16px), 420px);
+  }
+
+  .editorControlsSegment {
+    min-width: 0;
+  }
+
+  .editorControls > .editorControlsSegment:first-child {
+    flex: 0 0 auto;
+    order: 1;
+  }
+
+  .editorControls > .palette {
+    flex: 1 1 0;
+    justify-content: center;
+    order: 1;
+  }
+
+  .editorNameSegment {
+    flex: 0 0 100%;
+    order: 2;
+  }
+
+  .editorActionSegment {
+    flex: 0 0 100%;
+    justify-content: space-between;
+    order: 3;
+  }
+
+  .editorActionSegment button {
+    flex: 1 1 0;
   }
 
   .editorCanvasWrap {
@@ -773,12 +878,17 @@ button {
   }
 
   .editorControls input {
-    flex: 1 1 140px;
+    flex: 1 1 auto;
     min-width: 0;
+    width: 100%;
   }
 
-  .swatch {
+  .editorControls .swatch {
+    flex: 0 0 32px;
     height: 32px;
+    min-height: 32px;
+    min-width: 32px;
+    padding: 0;
     width: 32px;
   }
 }
