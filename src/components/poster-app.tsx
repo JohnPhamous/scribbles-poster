@@ -71,6 +71,25 @@ const posterBackgroundColor = "#FFFBE8";
 const visibleRefreshMs = 1_000;
 const hiddenRefreshMs = 5_000;
 
+type GridSnap = {
+  cellPx: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+function snapPixel(value: number) {
+  return Math.round(value);
+}
+
+function snapRect(rect: ZoomRect): ZoomRect {
+  return {
+    x: snapPixel(rect.x),
+    y: snapPixel(rect.y),
+    width: Math.max(1, snapPixel(rect.width)),
+    height: Math.max(1, snapPixel(rect.height)),
+  };
+}
+
 export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot }) {
   const [snapshot, setSnapshot] = useState<PosterSnapshot | null>(() => initialSnapshot);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -88,6 +107,9 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const panCleanupTimerRef = useRef(0);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const gridSnapRef = useRef<GridSnap | null>(null);
+  const [gridSnap, setGridSnap] = useState<GridSnap | null>(null);
   const cameraStyle = useMemo(() => (selection ? getCameraStyle(selection.camera) : undefined), [selection]);
   const posterX = useMotionValue(0);
   const posterY = useMotionValue(0);
@@ -126,6 +148,58 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const orderedDrawings = useMemo(() => getOrderedDrawings(snapshot?.cells ?? []), [snapshot]);
 
   const withOptimisticDrawings = useCallback((next: PosterSnapshot) => applyOptimisticDrawings(next, optimisticDrawingsRef.current), []);
+
+  useLayoutEffect(() => {
+    if (!config || !gridRef.current || selection) return;
+
+    const grid = gridRef.current;
+    const updateGridSnap = () => {
+      const poster = grid.closest(".poster")?.getBoundingClientRect();
+      if (!poster) return;
+
+      const current = gridSnapRef.current ?? { cellPx: 0, offsetX: 0, offsetY: 0 };
+      const naturalWidth = poster.width * (config.gridWidthIn / config.posterWidthIn);
+      const titleHeight = poster.height * (config.titleHeightIn / config.posterHeightIn);
+      const gridAreaHeight = poster.height - titleHeight;
+      const naturalHeight = gridAreaHeight * (config.gridHeightIn / (config.posterHeightIn - config.titleHeightIn));
+      const nextCellPx = Math.max(
+        1,
+        snapPixel(Math.min(naturalWidth / config.columns, naturalHeight / config.rows)),
+      );
+      const snappedWidth = nextCellPx * config.columns;
+      const snappedHeight = nextCellPx * config.rows;
+      const unshiftedX = poster.x + (poster.width - snappedWidth) / 2;
+      const unshiftedY = poster.y + titleHeight + (gridAreaHeight - snappedHeight) / 2;
+      const next = {
+        cellPx: nextCellPx,
+        offsetX: snapPixel(unshiftedX) - unshiftedX,
+        offsetY: snapPixel(unshiftedY) - unshiftedY,
+      };
+
+      if (
+        current.cellPx === next.cellPx &&
+        Math.abs(current.offsetX - next.offsetX) < 0.001 &&
+        Math.abs(current.offsetY - next.offsetY) < 0.001
+      ) {
+        return;
+      }
+
+      gridSnapRef.current = next;
+      setGridSnap(next);
+    };
+
+    updateGridSnap();
+    const resizeObserver = new ResizeObserver(updateGridSnap);
+    resizeObserver.observe(grid);
+    window.visualViewport?.addEventListener("resize", updateGridSnap);
+    window.addEventListener("resize", updateGridSnap);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.visualViewport?.removeEventListener("resize", updateGridSnap);
+      window.removeEventListener("resize", updateGridSnap);
+    };
+  }, [config, selection]);
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/poster", { cache: "no-store" });
@@ -453,7 +527,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const showToolbar = showReplayTools || showPrintTools || Boolean(message);
 
   return (
-    <main className={`app ${showToolbar ? "toolbarVisible" : "toolbarHidden"} ${selection ? "zoomActive" : ""} ${selection?.kind === "view" ? "viewOverlayActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
+    <main className={`app ${showToolbar ? "toolbarVisible" : "toolbarHidden"} ${selection ? "zoomActive" : ""} ${selection ? "viewOverlayActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
       <div className="posterExperience">
         <section className="stage" aria-label="Collaborative poster">
           <motion.div
@@ -474,7 +548,21 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
             initial={false}
           >
             <header className="posterTitle">{config.title}</header>
-            <div className="posterGrid">
+            <div
+              ref={gridRef}
+              className="posterGrid"
+              style={
+                gridSnap
+                  ? ({
+                      "--grid-snap-x": `${gridSnap.offsetX}px`,
+                      "--grid-snap-y": `${gridSnap.offsetY}px`,
+                      "--snapped-cell-px": `${gridSnap.cellPx}px`,
+                      height: `${gridSnap.cellPx * config.rows}px`,
+                      width: `${gridSnap.cellPx * config.columns}px`,
+                    } as CSSProperties)
+                  : undefined
+              }
+            >
               {cellIds.map((cellId) => (
                 <PosterCell
                   key={cellId}
@@ -591,18 +679,18 @@ function PosterCell({
     if (!poster) return;
     onOpen({
       cellId,
-      cell: {
+      cell: snapRect({
         x: rect.left,
         y: rect.top,
         width: rect.width,
         height: rect.height,
-      },
-      poster: {
+      }),
+      poster: snapRect({
         x: poster.left,
         y: poster.top,
         width: poster.width,
         height: poster.height,
-      },
+      }),
     });
   }
 
@@ -763,6 +851,15 @@ function CellOverlay({
 
   return (
     <div className="overlay noPrint">
+      <VectorZoomLayer
+        selection={selection}
+        config={config}
+        cellIds={cellIds}
+        drawingsById={drawingsById}
+        cameraStyle={cameraStyle}
+        panSourceCamera={panSourceCamera}
+        phase={phase}
+      />
       <motion.div aria-hidden="true" className={`drawGuideFrame ${phase === "exit" ? "closing" : "opening"}`} style={style}>
         <span className="drawGuideLine drawGuideLineTop" />
         <span className="drawGuideLine drawGuideLineRight" />
@@ -794,7 +891,7 @@ function VectorZoomLayer({
   panSourceCamera,
   phase,
 }: {
-  selection: Extract<Selection, { kind: "view" }>;
+  selection: Selection;
   config: PosterConfig;
   cellIds: string[];
   drawingsById: Map<string, CellDrawing>;
@@ -809,9 +906,10 @@ function VectorZoomLayer({
   const panels = [...drawingsById.values()].flatMap((drawing) => {
     const isPan = phase === "pan" && panSourceCamera && panSourceCameraStyle;
     const isExit = phase === "exit";
+    const shouldAnimateLayout = isExit || (selection.kind === "edit" && phase === "enter");
+    const shouldRenderAllDrawings = selection.kind === "edit" || isExit || isPan;
     if (
-      !isExit &&
-      !isPan &&
+      !shouldRenderAllDrawings &&
       drawing.id !== selection.cellId &&
       !isZoomNeighborCell(cellIds, drawing.id, selection.cellId, config)
     ) {
@@ -849,19 +947,20 @@ function VectorZoomLayer({
     const panFrom = isPan
       ? getPanelTransformFromCamera(drawing.id, target, panSourceCamera, panSourceCameraStyle, config, cellIds)
       : null;
-    return [{ drawing, final, target, from: exitFrom ?? panFrom ?? from, isExit }];
+    return [{ drawing, base, final, target, from: exitFrom ?? panFrom ?? from, shouldAnimateLayout, isExit }];
   });
 
   return (
     <>
-      {panels.map(({ drawing, final, target, from, isExit }) => {
-        const motionProps = isExit
+      {panels.map(({ drawing, base, final, target, from, shouldAnimateLayout, isExit }) => {
+        const layoutFrom = isExit ? final : base;
+        const motionProps = shouldAnimateLayout
           ? {
               initial: {
-                left: final.x,
-                top: final.y,
-                width: final.width,
-                height: final.height,
+                left: layoutFrom.x,
+                top: layoutFrom.y,
+                width: layoutFrom.width,
+                height: layoutFrom.height,
                 x: 0,
                 y: 0,
                 scale: 1,
@@ -934,14 +1033,14 @@ function getCameraForCell(cellId: string, sourceCellId: string, sourceCamera: Ca
   const row = Math.floor(cellIndex / config.columns);
   const sourceCol = sourceCellIndex % config.columns;
   const sourceRow = Math.floor(sourceCellIndex / config.columns);
-  const cellWidth = sourceCamera.cell.width;
-  const cellHeight = sourceCamera.cell.height;
+  const cellWidth = snapPixel(sourceCamera.cell.width);
+  const cellHeight = snapPixel(sourceCamera.cell.height);
 
   return {
     cellId,
     cell: {
-      x: sourceCamera.cell.x + (col - sourceCol) * cellWidth,
-      y: sourceCamera.cell.y + (row - sourceRow) * cellHeight,
+      x: snapPixel(sourceCamera.cell.x + (col - sourceCol) * cellWidth),
+      y: snapPixel(sourceCamera.cell.y + (row - sourceRow) * cellHeight),
       width: cellWidth,
       height: cellHeight,
     },
@@ -973,18 +1072,20 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
   const isMobileViewport = viewportWidth <= 720;
   const controlsReserve = isMobileViewport ? 118 : 128;
   const viewportGutter = isMobileViewport ? 8 : 12;
-  const targetSize = Math.max(
+  const targetSize = snapPixel(Math.max(
     1,
     Math.min(
       viewportWidth * 0.92,
       viewportHeight - controlsReserve - viewportGutter * 2,
     ),
-  );
-  const targetLeft = Math.max(12, (viewportWidth - targetSize) / 2);
-  const targetTop = Math.max(viewportGutter, (viewportHeight - targetSize - controlsReserve) / 2);
+  ));
+  const targetLeft = snapPixel(Math.max(12, (viewportWidth - targetSize) / 2));
+  const targetTop = snapPixel(Math.max(viewportGutter, (viewportHeight - targetSize - controlsReserve) / 2));
   const scale = targetSize / camera.cell.width;
   const cellOffsetX = camera.cell.x - camera.poster.x;
   const cellOffsetY = camera.cell.y - camera.poster.y;
+  const posterX = snapPixel(targetLeft - camera.poster.x - cellOffsetX * scale);
+  const posterY = snapPixel(targetTop - camera.poster.y - cellOffsetY * scale);
 
   return {
     poster: {
@@ -992,8 +1093,8 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
       "--camera-poster-y": `${camera.poster.y}px`,
       "--camera-poster-width": `${camera.poster.width}px`,
       "--camera-poster-height": `${camera.poster.height}px`,
-      "--camera-dx": `${targetLeft - camera.poster.x - cellOffsetX * scale}px`,
-      "--camera-dy": `${targetTop - camera.poster.y - cellOffsetY * scale}px`,
+      "--camera-dx": `${posterX}px`,
+      "--camera-dy": `${posterY}px`,
       "--camera-scale": scale,
     } as CSSProperties,
     target: {
@@ -1008,8 +1109,8 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
       "--zoom-to-size": `${targetSize}px`,
     } as CSSProperties,
     posterMotion: {
-      x: targetLeft - camera.poster.x - cellOffsetX * scale,
-      y: targetTop - camera.poster.y - cellOffsetY * scale,
+      x: posterX,
+      y: posterY,
       scale,
     },
     targetMotion: {
@@ -1031,10 +1132,10 @@ function getProjectedCellRect(
   posterMotion: CameraStyle["posterMotion"],
 ): ZoomRect {
   return {
-    x: poster.x + posterMotion.x + (cell.x - poster.x) * posterMotion.scale,
-    y: poster.y + posterMotion.y + (cell.y - poster.y) * posterMotion.scale,
-    width: cell.width * posterMotion.scale,
-    height: cell.height * posterMotion.scale,
+    x: snapPixel(poster.x + posterMotion.x + (cell.x - poster.x) * posterMotion.scale),
+    y: snapPixel(poster.y + posterMotion.y + (cell.y - poster.y) * posterMotion.scale),
+    width: Math.max(1, snapPixel(cell.width * posterMotion.scale)),
+    height: Math.max(1, snapPixel(cell.height * posterMotion.scale)),
   };
 }
 
