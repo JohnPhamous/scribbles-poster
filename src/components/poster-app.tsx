@@ -82,9 +82,11 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const [replayMode, setReplayMode] = useState<ReplayMode>("simultaneous");
   const [isSaving, setIsSaving] = useState(false);
   const [panSourceCellId, setPanSourceCellId] = useState<string | null>(null);
+  const [panSourceCamera, setPanSourceCamera] = useState<CameraFrame | null>(null);
 
   const optimisticDrawingsRef = useRef<Map<string, CellDrawing>>(new Map());
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const panCleanupTimerRef = useRef(0);
   const cameraStyle = useMemo(() => (selection ? getCameraStyle(selection.camera) : undefined), [selection]);
   const posterX = useMotionValue(0);
   const posterY = useMotionValue(0);
@@ -174,6 +176,10 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   }, []);
 
   useEffect(() => {
+    return () => window.clearTimeout(panCleanupTimerRef.current);
+  }, []);
+
+  useEffect(() => {
     if (replayStartedAt === null || !config) return;
     let frame = 0;
     const tick = () => {
@@ -246,10 +252,13 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
 
       setMessage("");
       setPanSourceCellId(selection.cellId);
+      setPanSourceCamera(selection.camera);
       setSelection({ kind: "view", cellId: targetId, drawing, camera });
       setZoomPhase("pan");
-      window.setTimeout(() => {
+      window.clearTimeout(panCleanupTimerRef.current);
+      panCleanupTimerRef.current = window.setTimeout(() => {
         setPanSourceCellId(null);
+        setPanSourceCamera(null);
         setZoomPhase("idle");
       }, cameraCleanupMs);
     },
@@ -306,12 +315,16 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     const drawing = drawingsById.get(cellId);
     if (drawing) {
       setPanSourceCellId(null);
+      setPanSourceCamera(null);
+      window.clearTimeout(panCleanupTimerRef.current);
       setSelection({ kind: "view", cellId, drawing, camera });
       setZoomPhase("enter");
       return;
     }
 
     setPanSourceCellId(null);
+    setPanSourceCamera(null);
+    window.clearTimeout(panCleanupTimerRef.current);
     setSelection({ kind: "edit", cellId, camera });
     setZoomPhase("enter");
   }
@@ -321,6 +334,8 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
 
     setZoomPhase("exit");
     setPanSourceCellId(null);
+    setPanSourceCamera(null);
+    window.clearTimeout(panCleanupTimerRef.current);
 
     window.setTimeout(() => {
       setSelection(null);
@@ -334,6 +349,8 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
     setMessage("");
     setZoomPhase("exit");
     setPanSourceCellId(null);
+    setPanSourceCamera(null);
+    window.clearTimeout(panCleanupTimerRef.current);
     setIsSaving(true);
 
     window.setTimeout(() => {
@@ -435,7 +452,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
   const showToolbar = showReplayTools || showPrintTools || Boolean(message);
 
   return (
-    <main className={`app ${showToolbar ? "toolbarVisible" : "toolbarHidden"} ${selection ? "zoomActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
+    <main className={`app ${showToolbar ? "toolbarVisible" : "toolbarHidden"} ${selection ? "zoomActive" : ""} ${selection?.kind === "view" ? "viewOverlayActive" : ""} ${zoomPhase === "exit" ? "zoomClosing" : "zoomOpening"}`}>
       <div className="posterExperience">
         <section className="stage" aria-label="Collaborative poster">
           <motion.div
@@ -512,6 +529,7 @@ export function PosterApp({ initialSnapshot }: { initialSnapshot: PosterSnapshot
           phase={zoomPhase}
           style={zoomPanelMotionStyle}
           cameraStyle={cameraStyle}
+          panSourceCamera={panSourceCamera}
           cellIds={cellIds}
           drawingsById={drawingsById}
           onPointerDown={beginSwipe}
@@ -695,6 +713,7 @@ function CellOverlay({
   phase,
   style,
   cameraStyle,
+  panSourceCamera,
   cellIds,
   drawingsById,
   onPointerDown,
@@ -709,6 +728,7 @@ function CellOverlay({
   phase: ZoomPhase;
   style: ZoomPanelMotionStyle;
   cameraStyle: CameraStyle | undefined;
+  panSourceCamera: CameraFrame | null;
   cellIds: string[];
   drawingsById: Map<string, CellDrawing>;
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
@@ -727,6 +747,7 @@ function CellOverlay({
           cellIds={cellIds}
           drawingsById={drawingsById}
           cameraStyle={cameraStyle}
+          panSourceCamera={panSourceCamera}
           phase={phase}
         />
         <div className={`viewControls ${phase === "exit" ? "closing" : "opening"}`}>
@@ -768,6 +789,7 @@ function VectorZoomLayer({
   cellIds,
   drawingsById,
   cameraStyle,
+  panSourceCamera,
   phase,
 }: {
   selection: Extract<Selection, { kind: "view" }>;
@@ -775,12 +797,19 @@ function VectorZoomLayer({
   cellIds: string[];
   drawingsById: Map<string, CellDrawing>;
   cameraStyle: CameraStyle | undefined;
+  panSourceCamera: CameraFrame | null;
   phase: ZoomPhase;
 }) {
-  if (!cameraStyle || phase === "pan") return null;
+  if (!cameraStyle) return null;
+
+  const panSourceCameraStyle = phase === "pan" && panSourceCamera ? getCameraStyle(panSourceCamera) : null;
 
   const panels = [...drawingsById.values()].flatMap((drawing) => {
+    const isPan = phase === "pan" && panSourceCamera && panSourceCameraStyle;
+    const isExit = phase === "exit";
     if (
+      !isExit &&
+      !isPan &&
       drawing.id !== selection.cellId &&
       !isZoomNeighborCell(cellIds, drawing.id, selection.cellId, config)
     ) {
@@ -806,23 +835,34 @@ function VectorZoomLayer({
       y: base.y - final.y,
       scale: base.width / final.width,
     };
-    return [{ drawing, final, from }];
+    const target = isExit ? base : final;
+    const exitFrom = isExit
+      ? {
+          x: final.x - base.x,
+          y: final.y - base.y,
+          scale: final.width / base.width,
+        }
+      : null;
+    const panFrom = isPan
+      ? getPanelTransformFromCamera(drawing.id, target, panSourceCamera, panSourceCameraStyle, config, cellIds)
+      : null;
+    return [{ drawing, target, from: exitFrom ?? panFrom ?? from }];
   });
 
   return (
     <>
-      {panels.map(({ drawing, final, from }) => (
+      {panels.map(({ drawing, target, from }) => (
         <motion.div
-          key={drawing.id}
+          key={`${drawing.id}-${phase === "pan" ? selection.cellId : phase}`}
           aria-hidden="true"
           className="viewZoomPanel"
-          initial={phase === "enter" ? from : false}
-          animate={phase === "exit" ? from : { x: 0, y: 0, scale: 1 }}
+          initial={phase === "enter" || phase === "pan" || phase === "exit" ? from : false}
+          animate={{ x: 0, y: 0, scale: 1 }}
           transition={phase === "exit" ? cameraExitTransition : cameraTransition}
           style={{
-            left: final.x,
-            top: final.y,
-            width: final.width,
+            left: target.x,
+            top: target.y,
+            width: target.width,
           }}
         >
           <DrawingPreviewSvg drawing={drawing} config={config} />
@@ -830,6 +870,25 @@ function VectorZoomLayer({
       ))}
     </>
   );
+}
+
+function getPanelTransformFromCamera(
+  cellId: string,
+  targetRect: ZoomRect,
+  sourceCamera: CameraFrame,
+  sourceCameraStyle: CameraStyle,
+  config: PosterConfig,
+  cellIds: string[],
+) {
+  const sourceCellCamera = getCameraForCell(cellId, sourceCamera, config, cellIds);
+  if (!sourceCellCamera) return null;
+
+  const sourceRect = getProjectedCellRect(sourceCellCamera.cell, sourceCamera.poster, sourceCameraStyle.posterMotion);
+  return {
+    x: sourceRect.x - targetRect.x,
+    y: sourceRect.y - targetRect.y,
+    scale: sourceRect.width / targetRect.width,
+  };
 }
 
 

@@ -244,6 +244,11 @@ button {
   font-weight: 400;
 }
 
+.viewOverlayActive .posterGrid .drawingCanvas,
+.viewOverlayActive .posterGrid .drawingPreviewSvg {
+  opacity: 0;
+}
+
 .toolbar {
   align-items: center;
   display: flex;
