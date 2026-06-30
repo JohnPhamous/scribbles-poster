@@ -765,11 +765,20 @@ function getDirectionFromSwipe(dx: number, dy: number): GridNavigationDirection 
 }
 
 function getCameraStyle(camera: CameraFrame): CameraStyle {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const targetSize = Math.min(viewportWidth * 0.92, viewportHeight * 0.78);
+  const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const isMobileViewport = viewportWidth <= 720;
+  const controlsReserve = isMobileViewport ? 118 : 96;
+  const viewportGutter = isMobileViewport ? 8 : 12;
+  const targetSize = Math.max(
+    1,
+    Math.min(
+      viewportWidth * 0.92,
+      viewportHeight - controlsReserve - viewportGutter * 2,
+    ),
+  );
   const targetLeft = Math.max(12, (viewportWidth - targetSize) / 2);
-  const targetTop = Math.max(16, (viewportHeight - targetSize - 96) / 2);
+  const targetTop = Math.max(viewportGutter, (viewportHeight - targetSize - controlsReserve) / 2);
   const scale = targetSize / camera.cell.width;
   const cellOffsetX = camera.cell.x - camera.poster.x;
   const cellOffsetY = camera.cell.y - camera.poster.y;

@@ -13,6 +13,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  overscroll-behavior: none;
 }
 
 button,
@@ -595,42 +596,66 @@ button {
 }
 
 @media (max-width: 720px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    width: 100%;
+  }
+
   .app {
-    padding: 12px;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+    padding: max(8px, env(safe-area-inset-top)) 0 max(8px, env(safe-area-inset-bottom));
+    width: 100vw;
   }
 
   .posterExperience {
+    align-content: center;
     flex-direction: column;
-    gap: 22px;
-    padding: 0 12px;
+    gap: clamp(8px, 1.8dvh, 14px);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0 max(8px, env(safe-area-inset-left)) 0 max(8px, env(safe-area-inset-right));
   }
 
   .stage {
-    min-height: calc(100vh - 96px);
+    align-items: center;
+    min-height: 0;
+    width: 100%;
   }
 
   .poster {
     width: min(
-      96vw,
-      calc((100vh - 116px) * var(--poster-width) / var(--poster-height))
+      calc(100vw - max(16px, calc(env(safe-area-inset-left) + env(safe-area-inset-right)))),
+      calc((100dvh - 132px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * var(--poster-width) / var(--poster-height))
     );
   }
 
   .toolbarHidden .poster {
     width: min(
-      96vw,
-      calc((100vh - 24px) * var(--poster-width) / var(--poster-height))
+      calc(100vw - max(16px, calc(env(safe-area-inset-left) + env(safe-area-inset-right)))),
+      calc((100dvh - 118px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * var(--poster-width) / var(--poster-height))
     );
   }
 
   .posterInvite {
     flex: none;
-    font-size: clamp(14px, 5vw, 21px);
-    max-width: min(560px, 100%);
+    font-size: clamp(13px, 4.5vw, 18px);
+    line-height: 0.96;
+    max-width: 100%;
     order: -1;
-    padding: 24px 28px;
+    padding: 14px 18px;
     transform: rotate(-0.5deg);
     width: 100%;
+  }
+
+  .posterInvite p + p {
+    margin-top: 0.45em;
   }
 
   .zoomActive .posterInvite {
@@ -642,10 +667,10 @@ button {
   }
 
   .posterInviteArrowMobile {
-    bottom: -76px;
+    bottom: -52px;
     display: block;
     left: 46%;
-    width: 128px;
+    width: 96px;
   }
 
   .posterTitle {
@@ -654,6 +679,52 @@ button {
 
   .toolbar {
     flex-wrap: wrap;
+    gap: 6px;
+    min-height: 34px;
+    padding-top: 6px;
+  }
+
+  .iconButton,
+  .editorControls button,
+  .editorControls input,
+  .viewControls button {
+    min-height: 34px;
+    padding: 6px 9px;
+  }
+
+  .zoomActive .stage {
+    min-height: 100dvh;
+  }
+
+  .viewControls {
+    bottom: max(8px, env(safe-area-inset-bottom));
+    max-width: calc(100vw - 16px);
+  }
+
+  .zoomPanel {
+    max-width: calc(100vw - 16px);
+  }
+
+  .editorControls {
+    gap: 6px;
+    max-height: calc(100dvh - var(--zoom-to-size) - var(--zoom-to-y) - env(safe-area-inset-bottom) - 8px);
+    overflow: hidden;
+    width: min(var(--zoom-to-size), calc(100vw - 16px), 420px);
+  }
+
+  .editorCanvasWrap {
+    justify-self: center;
+    width: var(--zoom-to-size);
+  }
+
+  .editorControls input {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+
+  .swatch {
+    height: 32px;
+    width: 32px;
   }
 }
 
