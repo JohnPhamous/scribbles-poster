@@ -112,7 +112,7 @@ button {
 .posterInvite {
   background: #fff7f8;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
+  border-radius: 2px;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.05),
     0 8px 18px rgba(0, 0, 0, 0.07),
