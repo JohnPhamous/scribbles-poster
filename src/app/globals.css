@@ -17,6 +17,7 @@ body {
 
 button,
 input {
+  -webkit-tap-highlight-color: transparent;
   font: inherit;
 }
 
@@ -209,7 +210,6 @@ button {
   opacity: 0;
 }
 
-.cell:hover::after,
 .cell:focus-visible::after {
   opacity: 1;
 }
@@ -273,13 +273,6 @@ button {
 .viewControls button {
   cursor: pointer;
   font-weight: 700;
-}
-
-.iconButton:hover,
-.editorControls button:hover:not(:disabled),
-.viewControls button:hover:not(:disabled) {
-  background: #000;
-  color: #fff;
 }
 
 .iconButton:focus-visible,
@@ -520,6 +513,19 @@ button {
 
 .swatch:focus-visible {
   box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 5px #000;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cell:hover::after {
+    opacity: 1;
+  }
+
+  .iconButton:hover,
+  .editorControls button:hover:not(:disabled),
+  .viewControls button:hover:not(:disabled) {
+    background: #000;
+    color: #fff;
+  }
 }
 
 .srOnly {
