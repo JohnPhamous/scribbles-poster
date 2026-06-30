@@ -417,7 +417,9 @@ button {
 .zoomPanel {
   display: grid;
   gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
   left: var(--zoom-to-x);
+  max-width: calc(100vw - 24px);
   pointer-events: auto;
   position: fixed;
   top: var(--zoom-to-y);
@@ -502,7 +504,9 @@ button {
 
 .editorCanvasWrap {
   aspect-ratio: 1;
+  min-width: 0;
   position: relative;
+  width: 100%;
 }
 
 .editorCanvasWrap.editing::after {
@@ -549,9 +553,10 @@ button {
   justify-content: center;
   justify-self: center;
   margin: 0 auto;
-  max-width: calc(100vw - 16px);
+  max-width: 100%;
+  min-width: 0;
   padding-inline: 12px;
-  width: max-content;
+  width: 100%;
 }
 
 .editorControlsSegment {
@@ -861,7 +866,7 @@ button {
 
   .editorControls > .palette {
     flex: 1 1 0;
-    justify-content: center;
+    justify-content: space-between;
     order: 1;
   }
 
