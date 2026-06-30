@@ -768,7 +768,7 @@ function getCameraStyle(camera: CameraFrame): CameraStyle {
   const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   const isMobileViewport = viewportWidth <= 720;
-  const controlsReserve = isMobileViewport ? 118 : 96;
+  const controlsReserve = isMobileViewport ? 118 : 128;
   const viewportGutter = isMobileViewport ? 8 : 12;
   const targetSize = Math.max(
     1,
@@ -1142,8 +1142,16 @@ function Editor({
           onLostPointerCapture={finishStroke}
         />
       </div>
-      <div className="editorControls">
-        <div className="palette" aria-label="Drawing colors">
+      <div className="editorControls" role="toolbar" aria-label="Drawing tools">
+        <div className="editorControlsSegment">
+          <button type="button" onClick={undo} disabled={!hasStrokeContent || isSaving}>
+            Undo
+          </button>
+          <button type="button" onClick={clear} disabled={!hasStrokeContent || isSaving}>
+            Clear
+          </button>
+        </div>
+        <div className="editorControlsSegment palette" aria-label="Drawing colors">
           {config.palette.map((item) => (
             <button
               key={item}
@@ -1155,19 +1163,17 @@ function Editor({
             />
           ))}
         </div>
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" aria-label="Your name" required />
-        <button type="button" onClick={undo} disabled={!hasStrokeContent || isSaving}>
-          Undo
-        </button>
-        <button type="button" onClick={clear} disabled={!hasStrokeContent || isSaving}>
-          Clear
-        </button>
-        <button type="button" onClick={onClose} disabled={isSaving}>
-          Cancel
-        </button>
-        <button type="button" onClick={save} disabled={isSaving || !hasStrokeContent || !hasName} data-primary>
-          {isSaving ? "Saving" : "Save"}
-        </button>
+        <div className="editorControlsSegment editorNameSegment">
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" aria-label="Your name" required />
+        </div>
+        <div className="editorControlsSegment">
+          <button type="button" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </button>
+          <button type="button" onClick={save} disabled={isSaving || !hasStrokeContent || !hasName} data-primary>
+            {isSaving ? "Saving" : "Save"}
+          </button>
+        </div>
         <span className="srOnly">{strokesVersion}</span>
       </div>
     </>
