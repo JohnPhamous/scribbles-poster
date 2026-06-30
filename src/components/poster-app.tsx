@@ -984,7 +984,11 @@ function Editor({
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, config.canvasSize, config.canvasSize);
     drawStrokes(ctx, [...strokesRef.current, ...(currentStrokeRef.current ? [currentStrokeRef.current] : [])], config.canvasSize);
-  }, [config.canvasSize]);
+    const previewName = name.trim();
+    if (previewName) {
+      drawAuthorLabel(ctx, previewName, config.canvasSize, getTitleFontFamily());
+    }
+  }, [config.canvasSize, name]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -997,6 +1001,7 @@ function Editor({
     };
     resize();
     const timer = window.setTimeout(resize, cameraMs + 40);
+    void document.fonts?.ready.then(redraw).catch(() => undefined);
     window.addEventListener("resize", resize);
     return () => {
       window.clearTimeout(timer);
