@@ -17,16 +17,27 @@ describe("poster state helpers", () => {
     expect(optimistic.has("r1c1")).toBe(true);
   });
 
-  it("drops optimistic entries only when the server snapshot confirms the cell", () => {
-    const optimisticDrawing = makeDrawing("r1c1", { drawOrder: 0, name: "Optimistic" });
+  it("keeps local saved drawings pinned when the server snapshot confirms the cell", () => {
     const confirmedDrawing = makeDrawing("r1c1", { drawOrder: 4, name: "Confirmed" });
-    const optimistic = new Map([[optimisticDrawing.id, optimisticDrawing]]);
+    const optimistic = new Map([[confirmedDrawing.id, confirmedDrawing]]);
     const snapshot = makeSnapshot({ cells: [confirmedDrawing] });
 
     const next = applyOptimisticDrawings(snapshot, optimistic);
 
     expect(next.cells).toEqual([confirmedDrawing]);
-    expect(optimistic.size).toBe(0);
+    expect(optimistic.has("r1c1")).toBe(true);
+  });
+
+  it("keeps optimistic drawings over stale snapshots with the same cell id", () => {
+    const staleDrawing = makeDrawing("r1c1", { drawOrder: 0, name: "Local" });
+    const savedDrawing = makeDrawing("r1c1", { drawOrder: 8, name: "Saved" });
+    const optimistic = new Map([[savedDrawing.id, savedDrawing]]);
+    const snapshot = makeSnapshot({ cells: [staleDrawing] });
+
+    const next = applyOptimisticDrawings(snapshot, optimistic);
+
+    expect(next.cells).toEqual([savedDrawing]);
+    expect(optimistic.has("r1c1")).toBe(true);
   });
 
   it("rolls back only the optimistic cell version, not a confirmed replacement", () => {

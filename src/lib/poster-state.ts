@@ -6,15 +6,6 @@ export function applyOptimisticDrawings(
 ): PosterSnapshot {
   if (optimisticDrawings.size === 0) return snapshot;
 
-  const confirmedCellIds = new Set(snapshot.cells.map((cell) => cell.id));
-  for (const optimisticCellId of optimisticDrawings.keys()) {
-    if (confirmedCellIds.has(optimisticCellId)) {
-      optimisticDrawings.delete(optimisticCellId);
-    }
-  }
-
-  if (optimisticDrawings.size === 0) return snapshot;
-
   return {
     ...snapshot,
     cells: [

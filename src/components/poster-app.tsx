@@ -620,12 +620,8 @@ export function PosterApp({
       await refresh().catch(() => undefined);
     } catch (error) {
       logClientSaveFailure("network-exception", drawing, error);
-      optimisticDrawingsRef.current.delete(drawing.id);
-      setSnapshot((current) =>
-        current ? rollbackOptimisticDrawing(current, drawing) : current
-      );
       setMessage(
-        "Could not save. Your drawing is backed up in this browser. Check your connection and try another cell."
+        "Could not confirm save. Your drawing is backed up in this browser and will stay visible here."
       );
       await refresh().catch(() => undefined);
     } finally {
