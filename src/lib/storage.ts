@@ -1,8 +1,11 @@
 import { del, get, list, put } from "@vercel/blob";
-import type { CellDrawing } from "./types";
+import { posterConfig } from "./poster-config";
+import { renderCellDrawing } from "./rendered-drawing";
+import type { CellDrawing, PosterSnapshot } from "./types";
 
 const cellPrefix = "cells/";
 const lockPrefix = "locks/";
+const compactSnapshotPath = "snapshots/poster-compact.json";
 const blobAccess = "private";
 const drawOrderLockPath = `${lockPrefix}draw-order.json`;
 const drawOrderLockTtlMs = 8_000;
@@ -56,6 +59,33 @@ export async function listCells(options?: { bypassCache?: boolean }): Promise<Ce
   return value;
 }
 
+export async function getCompactPosterSnapshot(): Promise<PosterSnapshot | null> {
+  const blobAuth = getBlobAuthOptions();
+  if (!blobAuth) return null;
+
+  const snapshot = await readJson<PosterSnapshot>(compactSnapshotPath);
+  if (!isValidPosterSnapshot(snapshot)) return null;
+  return withFreshSnapshotEnvelope(snapshot);
+}
+
+export async function rebuildCompactPosterSnapshot(options?: {
+  write?: boolean;
+}): Promise<PosterSnapshot> {
+  const cells = await listCells({ bypassCache: true });
+  const snapshot = makeCompactPosterSnapshot(cells);
+
+  if (options?.write && hasBlobCredentials()) {
+    await put(compactSnapshotPath, JSON.stringify(snapshot), {
+      ...getRequiredBlobAuthOptions(),
+      access: blobAccess,
+      contentType: "application/json",
+      allowOverwrite: true,
+    });
+  }
+
+  return snapshot;
+}
+
 export async function getCell(id: string, options?: { retry?: boolean }): Promise<CellDrawing | null> {
   if (!hasBlobCredentials()) return memoryCells.get(id) ?? null;
   const attempts = options?.retry ? 6 : 1;
@@ -107,8 +137,39 @@ export async function saveCell(drawing: CellDrawing): Promise<CellDrawing | "occ
       throw error;
     }
     invalidateCellsCache();
+    await refreshCompactPosterSnapshotAfterSave(nextDrawing);
     return nextDrawing;
   });
+}
+
+async function refreshCompactPosterSnapshotAfterSave(savedDrawing: CellDrawing) {
+  try {
+    const existingSnapshot = await readJson<PosterSnapshot>(compactSnapshotPath);
+    const baseSnapshot = isValidPosterSnapshot(existingSnapshot)
+      ? existingSnapshot
+      : await rebuildCompactPosterSnapshot();
+    const snapshot = upsertCompactSnapshotDrawing(baseSnapshot, savedDrawing);
+
+    await put(compactSnapshotPath, JSON.stringify(snapshot), {
+      ...getRequiredBlobAuthOptions(),
+      access: blobAccess,
+      contentType: "application/json",
+      allowOverwrite: true,
+    });
+  } catch (error) {
+    console.error("[scribble-poster] compact snapshot refresh failed", {
+      savedCellId: savedDrawing.id,
+      error: serializeError(error),
+    });
+    try {
+      await del(compactSnapshotPath, getRequiredBlobAuthOptions());
+    } catch (deleteError) {
+      console.error("[scribble-poster] compact snapshot stale-delete failed", {
+        savedCellId: savedDrawing.id,
+        error: serializeError(deleteError),
+      });
+    }
+  }
 }
 
 async function withDrawOrderLock<T>(callback: () => Promise<T>) {
@@ -248,4 +309,49 @@ function getBlobAuthOptions(): BlobAuthOptions | null {
 
 function isProductionEnvironment() {
   return process.env.VERCEL_ENV === "production";
+}
+
+function makeCompactPosterSnapshot(cells: CellDrawing[]): PosterSnapshot {
+  return {
+    config: posterConfig,
+    cells: cells.map(renderCellDrawing),
+    now: new Date().toISOString(),
+  };
+}
+
+function withFreshSnapshotEnvelope(snapshot: PosterSnapshot): PosterSnapshot {
+  return {
+    config: posterConfig,
+    cells: snapshot.cells,
+    now: new Date().toISOString(),
+  };
+}
+
+function upsertCompactSnapshotDrawing(
+  snapshot: PosterSnapshot,
+  drawing: CellDrawing,
+): PosterSnapshot {
+  const renderedDrawing = renderCellDrawing(drawing);
+  return {
+    config: posterConfig,
+    cells: [
+      ...snapshot.cells.filter((cell) => cell.id !== drawing.id),
+      renderedDrawing,
+    ].sort((a, b) => (a.drawOrder ?? 0) - (b.drawOrder ?? 0)),
+    now: new Date().toISOString(),
+  };
+}
+
+function isValidPosterSnapshot(value: PosterSnapshot | null): value is PosterSnapshot {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      Array.isArray(value.cells),
+  );
+}
+
+function serializeError(error: unknown) {
+  return error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : error;
 }

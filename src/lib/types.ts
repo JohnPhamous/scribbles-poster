@@ -13,6 +13,17 @@ export type Stroke = {
   points: Point[];
 };
 
+export type RenderedStroke = {
+  id?: string;
+  order?: number;
+  color?: string;
+  c?: string;
+  width?: number;
+  w?: number;
+  d?: string;
+  p?: string;
+};
+
 export type CellDrawing = {
   id: string;
   drawOrder: number;
@@ -21,6 +32,12 @@ export type CellDrawing = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type RenderedCellDrawing = Omit<CellDrawing, "strokes"> & {
+  paths: RenderedStroke[];
+};
+
+export type PosterCellDrawing = CellDrawing | RenderedCellDrawing;
 
 export type CellSummary = {
   id: string;
@@ -52,6 +69,12 @@ export type PosterConfig = {
 
 export type PosterSnapshot = {
   config: PosterConfig;
-  cells: CellDrawing[];
+  cells: PosterCellDrawing[];
   now: string;
 };
+
+export function hasFullStrokes(
+  drawing: PosterCellDrawing,
+): drawing is CellDrawing {
+  return "strokes" in drawing && Array.isArray(drawing.strokes);
+}

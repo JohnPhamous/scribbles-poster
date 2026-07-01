@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  use,
 } from "react";
 import type {
   ComponentProps,
@@ -17,26 +18,38 @@ import type {
   PointerEvent,
 } from "react";
 import { animate, motion, useMotionValue } from "motion/react";
-import { drawStrokes, getStrokeDuration } from "@/lib/drawing";
-import { getDirectionalCellId } from "@/lib/grid-navigation";
-import type { GridNavigationDirection } from "@/lib/grid-navigation";
+import {
+  drawStrokes,
+  getOrderedStrokes,
+  getStrokeDuration,
+  getStrokePathData,
+  unpackStrokePathData,
+} from "@/lib/drawing";
 import { getCellIds } from "@/lib/poster-config";
 import {
   applyOptimisticDrawings,
   rollbackOptimisticDrawing,
   upsertDrawing,
 } from "@/lib/poster-state";
+import { hasFullStrokes } from "@/lib/types";
 import type {
   CellDrawing,
   Point,
+  PosterCellDrawing,
   PosterConfig,
   PosterSnapshot,
+  RenderedStroke,
   Stroke,
 } from "@/lib/types";
 
 type Selection =
   | { kind: "edit"; cellId: string; camera: CameraFrame }
-  | { kind: "view"; cellId: string; drawing: CellDrawing; camera: CameraFrame };
+  | {
+      kind: "view";
+      cellId: string;
+      drawing: PosterCellDrawing;
+      camera: CameraFrame;
+    };
 
 type ZoomRect = {
   x: number;
@@ -72,6 +85,7 @@ type CellReplay = {
   elapsedMs: number;
   durationMs?: number;
 };
+type ViewNavigationStep = "previous" | "next";
 type ZoomPhase = "enter" | "idle" | "exit" | "pan";
 type PosterMotionStyle = ComponentProps<typeof motion.div>["style"];
 type ZoomPanelMotionStyle = ComponentProps<typeof motion.div>["style"];
@@ -93,7 +107,7 @@ const cameraExitTransition = {
 } as const;
 const cameraEnterCleanupMs = cameraEnterMs + 120;
 const cameraPanCleanupMs = cameraPanMs + 120;
-const cameraExitCleanupMs = cameraExitMs + 120;
+const cameraExitCleanupMs = cameraExitMs + 360;
 const zoomCanvasNeighborRadius = 1;
 const maxZoomCanvasScale = 14;
 const authorLabelFontRatio = 0.08;
@@ -101,12 +115,11 @@ const authorLabelMarginRatio = 0.05;
 const authorLabelFallbackFontFamily = "Arial, sans-serif";
 const pageBackgroundColor = "#F1F1EF";
 const posterBackgroundColor = "#FFFBE8";
-const visibleRefreshMs = 1_000;
-const hiddenRefreshMs = 5_000;
 const pendingDrawingDbName = "scribble-poster-pending-drawings";
 const pendingDrawingStoreName = "drawings";
 const pendingDrawingStoragePrefix = "scribble-poster:pending-drawing:";
 const pendingDrawingBackupTimeoutMs = 1_200;
+const initialRevealMs = 2_000;
 
 type GridSnap = {
   cellPx: number;
@@ -127,6 +140,15 @@ function snapRect(rect: ZoomRect): ZoomRect {
   };
 }
 
+function domRectToZoomRect(rect: DOMRect): ZoomRect {
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
 export function PosterApp({
   initialSnapshot,
 }: {
@@ -144,6 +166,9 @@ export function PosterApp({
   const [replayElapsed, setReplayElapsed] = useState(0);
   const [replayMode, setReplayMode] = useState<ReplayMode>("simultaneous");
   const [isSaving, setIsSaving] = useState(false);
+  const [initialRevealActive, setInitialRevealActive] = useState(
+    () => initialSnapshot.cells.length > 0
+  );
   const [panSourceCellId, setPanSourceCellId] = useState<string | null>(null);
   const [panSourceCamera, setPanSourceCamera] = useState<CameraFrame | null>(
     null
@@ -191,7 +216,7 @@ export function PosterApp({
   const config = snapshot?.config;
   const cellIds = useMemo(() => (config ? getCellIds(config) : []), [config]);
   const drawingsById = useMemo(() => {
-    const map = new Map<string, CellDrawing>();
+    const map = new Map<string, PosterCellDrawing>();
     for (const cell of snapshot?.cells ?? []) map.set(cell.id, cell);
     return map;
   }, [snapshot]);
@@ -200,10 +225,23 @@ export function PosterApp({
     () => getOrderedDrawings(snapshot?.cells ?? []),
     [snapshot]
   );
+  const orderedFullDrawings = useMemo(
+    () => orderedDrawings.filter(hasFullStrokes),
+    [orderedDrawings]
+  );
 
   useEffect(() => {
     setThemeColor(selection ? posterBackgroundColor : pageBackgroundColor);
   }, [selection]);
+
+  useEffect(() => {
+    if (!initialRevealActive) return;
+    const timer = window.setTimeout(
+      () => setInitialRevealActive(false),
+      initialRevealMs + 120
+    );
+    return () => window.clearTimeout(timer);
+  }, [initialRevealActive]);
 
   const withOptimisticDrawings = useCallback(
     (next: PosterSnapshot) =>
@@ -269,47 +307,33 @@ export function PosterApp({
     };
   }, [config, selection]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { includeFullStrokes?: boolean }) => {
     const requestId = refreshRequestRef.current + 1;
     refreshRequestRef.current = requestId;
-    const response = await fetch("/api/poster", { cache: "no-store" });
+    const response = await fetch(
+      options?.includeFullStrokes ? "/api/poster?full=1" : "/api/poster",
+      { cache: "no-store" }
+    );
     if (!response.ok) throw new Error("Failed to load poster");
     const next = (await response.json()) as PosterSnapshot;
     if (requestId !== refreshRequestRef.current) return;
-    setSnapshot(withOptimisticDrawings(next));
+    const merged = withOptimisticDrawings(next);
+    setSnapshot((current) =>
+      current && areSnapshotsEquivalent(current, merged) ? current : merged
+    );
+    return merged;
   }, [withOptimisticDrawings]);
+
+  const loadFullSnapshot = useCallback(async () => {
+    if (snapshot?.cells.every(hasFullStrokes)) return snapshot;
+    return refresh({ includeFullStrokes: true });
+  }, [refresh, snapshot]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     setShowPrintTools(searchParams.get("print") === "1");
     setShowReplayTools(searchParams.get("replay") === "1");
-
-    let timer = 0;
-    const scheduleRefresh = () => {
-      window.clearTimeout(timer);
-      const delay = document.hidden ? hiddenRefreshMs : visibleRefreshMs;
-      timer = window.setTimeout(() => {
-        refresh()
-          .catch(() => undefined)
-          .finally(scheduleRefresh);
-      }, delay);
-    };
-    const refreshNow = () => {
-      refresh().catch(() => undefined);
-      scheduleRefresh();
-    };
-
-    scheduleRefresh();
-    window.addEventListener("focus", refreshNow);
-    window.addEventListener("online", refreshNow);
-    document.addEventListener("visibilitychange", refreshNow);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("focus", refreshNow);
-      window.removeEventListener("online", refreshNow);
-      document.removeEventListener("visibilitychange", refreshNow);
-    };
-  }, [refresh]);
+  }, []);
 
   useEffect(() => {
     const preventGesture = (event: Event) => event.preventDefault();
@@ -341,7 +365,7 @@ export function PosterApp({
       const elapsed = performance.now() - replayStartedAt;
       const duration = getReplayDuration(
         replayMode,
-        orderedDrawings.length,
+        orderedFullDrawings.length,
         config
       );
       setReplayElapsed(Math.min(elapsed, duration));
@@ -350,7 +374,7 @@ export function PosterApp({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [config, orderedDrawings.length, replayMode, replayStartedAt]);
+  }, [config, orderedFullDrawings.length, replayMode, replayStartedAt]);
 
   useLayoutEffect(() => {
     if (!selection || !cameraStyle) {
@@ -420,14 +444,14 @@ export function PosterApp({
   ]);
 
   const navigateView = useCallback(
-    (direction: GridNavigationDirection) => {
+    (step: ViewNavigationStep) => {
       if (!selection || selection.kind !== "view" || !config) return;
 
-      const targetId = getDirectionalCellId(
+      const targetId = getAdjacentDrawingCellId(
         selection.cellId,
-        [...drawingsById.keys()],
-        config,
-        direction
+        cellIds,
+        drawingsById,
+        step
       );
       if (!targetId) return;
 
@@ -464,10 +488,10 @@ export function PosterApp({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
         return;
-      const direction = getDirectionFromKey(event.key);
-      if (!direction) return;
+      const step = getNavigationStepFromKey(event.key);
+      if (!step) return;
       event.preventDefault();
-      navigateView(direction);
+      navigateView(step);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -506,16 +530,17 @@ export function PosterApp({
     swipeStartRef.current = null;
     if (!start) return;
 
-    const direction = getDirectionFromSwipe(
+    const step = getNavigationStepFromSwipe(
       event.clientX - start.x,
       event.clientY - start.y
     );
-    if (direction) navigateView(direction);
+    if (step) navigateView(step);
   }
 
   async function openCell(cellId: string, camera: CameraFrame) {
     if (!snapshot || !config) return;
     clearActiveInteractionState();
+    setInitialRevealActive(false);
     setMessage("");
 
     const drawing = drawingsById.get(cellId);
@@ -612,24 +637,27 @@ export function PosterApp({
 
       const savedDrawing = (await response.json()) as CellDrawing;
       await clearPendingDrawingBackup(savedDrawing.id);
-      optimisticDrawingsRef.current.set(savedDrawing.id, savedDrawing);
+      optimisticDrawingsRef.current.delete(savedDrawing.id);
       setSnapshot((current) =>
         current ? upsertDrawing(current, savedDrawing) : current
       );
       setMessage("");
-      await refresh().catch(() => undefined);
     } catch (error) {
       logClientSaveFailure("network-exception", drawing, error);
       setMessage(
         "Could not confirm save. Your drawing is backed up in this browser and will stay visible here."
       );
-      await refresh().catch(() => undefined);
     } finally {
       setIsSaving(false);
     }
   }
 
-  function startReplay() {
+  async function startReplay() {
+    const fullSnapshot = await loadFullSnapshot().catch(() => null);
+    if (!fullSnapshot) {
+      setMessage("Could not load replay data. Check your connection.");
+      return;
+    }
     setReplayElapsed(0);
     setReplayStartedAt(performance.now());
   }
@@ -641,6 +669,17 @@ export function PosterApp({
 
   async function exportPng() {
     if (!config) return;
+    const fullSnapshot = await loadFullSnapshot().catch(() => null);
+    if (!fullSnapshot) {
+      setMessage("Could not load export data. Check your connection.");
+      return;
+    }
+    const fullDrawingsById = new Map(
+      fullSnapshot.cells.filter(hasFullStrokes).map((drawing) => [
+        drawing.id,
+        drawing,
+      ])
+    );
     await document.fonts.ready.catch(() => undefined);
 
     const scale = config.exportDpi;
@@ -674,7 +713,7 @@ export function PosterApp({
       const row = Math.floor(index / config.columns);
       const x = xStart + col * cellPx;
       const y = yStart + row * cellPx;
-      const drawing = drawingsById.get(id);
+      const drawing = fullDrawingsById.get(id);
       if (!drawing) continue;
       ctx.save();
       ctx.translate(x, y);
@@ -695,13 +734,20 @@ export function PosterApp({
   }
 
   const replayActive = replayStartedAt !== null || replayElapsed > 0;
+  const gridRevealActive =
+    initialRevealActive && !selection && zoomPhase === "idle" && !replayActive;
   const zoomCanvasScale =
     selection && cameraStyle
       ? getZoomCanvasScale(cameraStyle.posterMotion.scale)
       : 1;
   const replayByCellId =
     replayActive && config
-      ? getReplayByCellId(replayMode, replayElapsed, orderedDrawings, config)
+      ? getReplayByCellId(
+          replayMode,
+          replayElapsed,
+          orderedFullDrawings,
+          config
+        )
       : new Map<string, CellReplay>();
   const showToolbar = showReplayTools || showPrintTools || Boolean(message);
 
@@ -714,6 +760,7 @@ export function PosterApp({
       }`}
     >
       <div className="posterExperience">
+        <PosterInvite config={config} />
         <section className="stage" aria-label="Collaborative poster">
           <motion.div
             className="poster"
@@ -761,6 +808,7 @@ export function PosterApp({
                   config={config}
                   drawing={drawingsById.get(cellId)}
                   replay={replayByCellId.get(cellId) ?? null}
+                  revealActive={gridRevealActive}
                   isSelected={selection?.cellId === cellId}
                   renderScale={
                     shouldRenderHighResolutionCell(
@@ -779,7 +827,6 @@ export function PosterApp({
             </div>
           </motion.div>
         </section>
-        <PosterInvite config={config} />
       </div>
 
       {showToolbar ? (
@@ -860,6 +907,15 @@ export function PosterApp({
       ) : null}
     </main>
   );
+}
+
+export function PosterAppStream({
+  snapshotPromise,
+}: {
+  snapshotPromise: Promise<PosterSnapshot>;
+}) {
+  const initialSnapshot = use(snapshotPromise);
+  return <PosterApp initialSnapshot={initialSnapshot} />;
 }
 
 type PendingDrawingBackup = {
@@ -1050,14 +1106,16 @@ function PosterCell({
   config,
   drawing,
   replay,
+  revealActive,
   isSelected,
   renderScale,
   onOpen,
 }: {
   cellId: string;
   config: PosterConfig;
-  drawing?: CellDrawing;
+  drawing?: PosterCellDrawing;
   replay: CellReplay | null;
+  revealActive: boolean;
   isSelected: boolean;
   renderScale: number;
   onOpen: (camera: CameraFrame) => void;
@@ -1078,12 +1136,7 @@ function PosterCell({
         width: rect.width,
         height: rect.height,
       }),
-      poster: snapRect({
-        x: poster.left,
-        y: poster.top,
-        width: poster.width,
-        height: poster.height,
-      }),
+      poster: domRectToZoomRect(poster),
     });
   }
 
@@ -1100,6 +1153,7 @@ function PosterCell({
         drawing={drawing}
         config={config}
         replay={replay}
+        revealActive={revealActive}
         renderScale={renderScale}
       />
     </button>
@@ -1110,14 +1164,17 @@ function DrawingCanvas({
   drawing,
   config,
   replay,
+  revealActive,
   renderScale = 1,
 }: {
-  drawing?: CellDrawing;
+  drawing?: PosterCellDrawing;
   config: PosterConfig;
   replay: CellReplay | null;
+  revealActive: boolean;
   renderScale?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const shouldRenderCanvas = replay !== null;
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -1149,6 +1206,7 @@ function DrawingCanvas({
       ctx.fillStyle = posterBackgroundColor;
       ctx.fillRect(0, 0, config.canvasSize, config.canvasSize);
       if (!drawing) return;
+      if (!hasFullStrokes(drawing)) return;
 
       if (replay === null) {
         drawStrokes(ctx, drawing.strokes, config.canvasSize);
@@ -1183,13 +1241,16 @@ function DrawingCanvas({
 
   return (
     <>
-      {drawing ? <DrawingPreviewSvg drawing={drawing} config={config} /> : null}
-      <canvas
-        ref={canvasRef}
-        className={`drawingCanvas ${
-          drawing && replay === null ? "drawingCanvasStatic" : ""
-        }`}
-      />
+      {drawing ? (
+        <DrawingPreviewSvg
+          drawing={drawing}
+          config={config}
+          revealActive={revealActive && replay === null}
+        />
+      ) : null}
+      {shouldRenderCanvas ? (
+        <canvas ref={canvasRef} className="drawingCanvas" />
+      ) : null}
     </>
   );
 }
@@ -1197,29 +1258,46 @@ function DrawingCanvas({
 function DrawingPreviewSvg({
   drawing,
   config,
+  revealActive = false,
 }: {
-  drawing: CellDrawing;
+  drawing: PosterCellDrawing;
   config: PosterConfig;
+  revealActive?: boolean;
 }) {
+  const paths = getDrawingPaths(drawing);
+  const revealStepMs = paths.length > 0 ? initialRevealMs / paths.length : 0;
+
   return (
     <svg
-      className="drawingPreviewSvg"
+      className={`drawingPreviewSvg ${revealActive ? "revealing" : ""}`}
       viewBox={`0 0 ${config.canvasSize} ${config.canvasSize}`}
       aria-hidden="true"
     >
-      {getOrderedStrokes(drawing.strokes).map((stroke) => (
+      {paths.map((stroke, index) => (
         <path
-          key={stroke.id}
-          d={getStrokePathData(stroke)}
+          key={stroke.id ?? index}
+          className="drawingPreviewPath"
+          d={getRenderedStrokePathData(stroke)}
           fill="none"
-          stroke={stroke.color}
+          pathLength={1}
+          stroke={getRenderedStrokeColor(stroke)}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={stroke.width}
+          strokeWidth={getRenderedStrokeWidth(stroke)}
+          style={
+            revealActive
+              ? ({
+                  "--reveal-path-delay": `${index * revealStepMs}ms`,
+                  "--reveal-path-duration": `${revealStepMs}ms`,
+                } as CSSProperties)
+              : undefined
+          }
         />
       ))}
       <text
-        className="drawingPreviewAuthor"
+        className={`drawingPreviewAuthor ${
+          revealActive ? "revealingAuthor" : ""
+        }`}
         x={config.canvasSize * authorLabelMarginRatio}
         y={config.canvasSize * (1 - authorLabelMarginRatio)}
         fill="#9a9a9a"
@@ -1229,6 +1307,34 @@ function DrawingPreviewSvg({
       </text>
     </svg>
   );
+}
+
+function getDrawingPaths(drawing: PosterCellDrawing): RenderedStroke[] {
+  if (hasFullStrokes(drawing)) {
+    return getOrderedStrokes(drawing.strokes).map((stroke) => ({
+      id: stroke.id,
+      order: stroke.order,
+      color: stroke.color,
+      width: stroke.width,
+      d: getStrokePathData(stroke),
+    }));
+  }
+
+  return drawing.paths;
+}
+
+function getRenderedStrokePathData(stroke: RenderedStroke) {
+  if (stroke.d) return stroke.d;
+  if (stroke.p) return unpackStrokePathData(stroke.p);
+  return "";
+}
+
+function getRenderedStrokeColor(stroke: RenderedStroke) {
+  return stroke.color ?? stroke.c ?? "#000";
+}
+
+function getRenderedStrokeWidth(stroke: RenderedStroke) {
+  return stroke.width ?? stroke.w ?? 1;
 }
 
 function CellOverlay({
@@ -1255,7 +1361,7 @@ function CellOverlay({
   cameraStyle: CameraStyle | undefined;
   panSourceCamera: CameraFrame | null;
   cellIds: string[];
-  drawingsById: Map<string, CellDrawing>;
+  drawingsById: Map<string, PosterCellDrawing>;
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: () => void;
@@ -1341,7 +1447,7 @@ function VectorZoomLayer({
   selection: Selection;
   config: PosterConfig;
   cellIds: string[];
-  drawingsById: Map<string, CellDrawing>;
+  drawingsById: Map<string, PosterCellDrawing>;
   cameraStyle: CameraStyle | undefined;
   panSourceCamera: CameraFrame | null;
   phase: ZoomPhase;
@@ -1365,14 +1471,13 @@ function VectorZoomLayer({
     from: { x: number; y: number; scale: number } | null;
     shouldAnimateLayout: boolean;
   }) => {
-    const layoutFrom = isExit ? final : base;
     if (shouldAnimateLayout) {
       return {
         initial: {
-          left: layoutFrom.x,
-          top: layoutFrom.y,
-          width: layoutFrom.width,
-          height: layoutFrom.height,
+          left: base.x,
+          top: base.y,
+          width: base.width,
+          height: base.height,
           x: 0,
           y: 0,
           scale: 1,
@@ -1396,9 +1501,17 @@ function VectorZoomLayer({
     }
 
     return {
-      initial: phase === "enter" || phase === "pan" ? from ?? false : false,
+      initial:
+        phase === "enter" || phase === "pan" || phase === "exit"
+          ? from ?? false
+          : false,
       animate: { x: 0, y: 0, scale: 1 },
-      transition: phase === "pan" ? cameraPanTransition : cameraTransition,
+      transition:
+        phase === "exit"
+          ? cameraExitTransition
+          : phase === "pan"
+            ? cameraPanTransition
+            : cameraTransition,
       style: {
         left: target.x,
         top: target.y,
@@ -1436,17 +1549,16 @@ function VectorZoomLayer({
             final,
             target,
             from: exitFrom ?? from,
-            shouldAnimateLayout: isExit || phase === "enter",
+            shouldAnimateLayout: phase === "enter",
           };
         })()
       : null;
 
   const panels = [...drawingsById.values()].flatMap((drawing) => {
     const isPan = phase === "pan" && panSourceCamera && panSourceCameraStyle;
-    const shouldAnimateLayout =
-      isExit || (selection.kind === "edit" && phase === "enter");
-    const shouldRenderAllDrawings =
-      selection.kind === "edit" || isExit || isPan;
+    const shouldAnimateLayout = selection.kind === "edit" && phase === "enter";
+    const shouldRenderAllDrawings = selection.kind === "edit" || isPan;
+    if (isExit) return [];
     if (
       !shouldRenderAllDrawings &&
       drawing.id !== selection.cellId &&
@@ -1622,25 +1734,43 @@ function getCameraForCell(
   };
 }
 
-function getDirectionFromKey(key: string): GridNavigationDirection | null {
-  if (key === "ArrowLeft") return "left";
-  if (key === "ArrowRight") return "right";
-  if (key === "ArrowUp") return "up";
-  if (key === "ArrowDown") return "down";
+function getAdjacentDrawingCellId(
+  currentId: string,
+  cellIds: string[],
+  drawingsById: Map<string, PosterCellDrawing>,
+  step: ViewNavigationStep
+) {
+  const drawingCellIds = cellIds.filter((cellId) => drawingsById.has(cellId));
+  if (drawingCellIds.length <= 1) return null;
+
+  const currentIndex = drawingCellIds.indexOf(currentId);
+  if (currentIndex < 0) return null;
+
+  const offset = step === "previous" ? -1 : 1;
+  return drawingCellIds[
+    (currentIndex + offset + drawingCellIds.length) % drawingCellIds.length
+  ];
+}
+
+function getNavigationStepFromKey(key: string): ViewNavigationStep | null {
+  if (key === "ArrowLeft") return "previous";
+  if (key === "ArrowUp") return "previous";
+  if (key === "ArrowRight") return "next";
+  if (key === "ArrowDown") return "next";
   return null;
 }
 
-function getDirectionFromSwipe(
+function getNavigationStepFromSwipe(
   dx: number,
   dy: number
-): GridNavigationDirection | null {
+): ViewNavigationStep | null {
   const absX = Math.abs(dx);
   const absY = Math.abs(dy);
   const minSwipePx = 42;
   if (Math.max(absX, absY) < minSwipePx) return null;
 
-  if (absX >= absY) return dx < 0 ? "right" : "left";
-  return dy < 0 ? "down" : "up";
+  if (absX >= absY) return dx < 0 ? "previous" : "next";
+  return dy < 0 ? "previous" : "next";
 }
 
 function getCameraStyle(camera: CameraFrame): CameraStyle {
@@ -1740,59 +1870,6 @@ function getTitleFontFamily() {
   );
 }
 
-function getOrderedStrokes(strokes: Stroke[]) {
-  return strokes
-    .map((stroke, index) => ({ stroke, index }))
-    .sort((a, b) => {
-      const orderA =
-        Number.isFinite(a.stroke.order) && a.stroke.order >= 0
-          ? a.stroke.order
-          : a.index;
-      const orderB =
-        Number.isFinite(b.stroke.order) && b.stroke.order >= 0
-          ? b.stroke.order
-          : b.index;
-      if (orderA !== orderB) return orderA - orderB;
-      return a.index - b.index;
-    })
-    .map(({ stroke }) => stroke);
-}
-
-function getStrokePathData(stroke: Stroke) {
-  const [firstPoint, ...restPoints] = stroke.points;
-  if (!firstPoint) return "";
-
-  const commands = [
-    `M ${formatSvgNumber(firstPoint.x)} ${formatSvgNumber(firstPoint.y)}`,
-  ];
-  if (restPoints.length === 0) {
-    commands.push(
-      `L ${formatSvgNumber(firstPoint.x + 0.1)} ${formatSvgNumber(
-        firstPoint.y + 0.1
-      )}`
-    );
-    return commands.join(" ");
-  }
-
-  let previous = firstPoint;
-  for (const point of restPoints) {
-    const midX = (previous.x + point.x) / 2;
-    const midY = (previous.y + point.y) / 2;
-    commands.push(
-      `Q ${formatSvgNumber(previous.x)} ${formatSvgNumber(
-        previous.y
-      )} ${formatSvgNumber(midX)} ${formatSvgNumber(midY)}`
-    );
-    previous = point;
-  }
-
-  return commands.join(" ");
-}
-
-function formatSvgNumber(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}
-
 function drawAuthorLabel(
   ctx: CanvasRenderingContext2D,
   name: string,
@@ -1860,7 +1937,27 @@ function formatInches(value: number) {
     : value.toFixed(1).replace(/\.0$/, "");
 }
 
-function getOrderedDrawings(drawings: CellDrawing[]) {
+function areSnapshotsEquivalent(
+  current: PosterSnapshot,
+  next: PosterSnapshot
+) {
+  if (current.cells.length !== next.cells.length) return false;
+
+  const currentCells = new Map(current.cells.map((cell) => [cell.id, cell]));
+  for (const nextCell of next.cells) {
+    const currentCell = currentCells.get(nextCell.id);
+    if (!currentCell) return false;
+    if (nextCell.updatedAt !== currentCell.updatedAt) return false;
+    if (nextCell.createdAt !== currentCell.createdAt) return false;
+    if (nextCell.drawOrder !== currentCell.drawOrder) return false;
+    if (nextCell.name !== currentCell.name) return false;
+    if (hasFullStrokes(nextCell) && !hasFullStrokes(currentCell)) return false;
+  }
+
+  return true;
+}
+
+function getOrderedDrawings(drawings: PosterCellDrawing[]) {
   return [...drawings].sort((a, b) => {
     const byOrder = getDrawOrder(a) - getDrawOrder(b);
     if (byOrder !== 0) return byOrder;
@@ -1871,7 +1968,7 @@ function getOrderedDrawings(drawings: CellDrawing[]) {
   });
 }
 
-function getDrawOrder(drawing: CellDrawing) {
+function getDrawOrder(drawing: PosterCellDrawing) {
   return Number.isFinite(drawing.drawOrder) && drawing.drawOrder > 0
     ? drawing.drawOrder
     : Number.MAX_SAFE_INTEGER;

@@ -1,4 +1,4 @@
-import type { CellDrawing, PosterSnapshot } from "./types";
+import type { CellDrawing, PosterCellDrawing, PosterSnapshot } from "./types";
 
 export function applyOptimisticDrawings(
   snapshot: PosterSnapshot,
@@ -35,7 +35,10 @@ export function rollbackOptimisticDrawing(
   };
 }
 
-function isOptimisticCellVersion(cell: CellDrawing, optimisticDrawing: CellDrawing) {
+function isOptimisticCellVersion(
+  cell: PosterCellDrawing,
+  optimisticDrawing: CellDrawing,
+) {
   return (
     cell.drawOrder === optimisticDrawing.drawOrder &&
     cell.createdAt === optimisticDrawing.createdAt &&

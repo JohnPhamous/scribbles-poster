@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { isValidCellId } from "@/lib/poster-config";
 import { getCell, saveCell } from "@/lib/storage";
 import { validateDrawing } from "@/lib/validation";
@@ -52,6 +53,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Cell is already occupied" }, { status: 409 });
     }
 
+    revalidatePath("/");
     return NextResponse.json(savedDrawing);
   } catch (error) {
     logSaveFailure("save-exception", id, drawing, error);
